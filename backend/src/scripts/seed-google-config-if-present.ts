@@ -25,21 +25,31 @@ async function main() {
     return
   }
 
-  await prisma.providerConfig.updateMany({
+  const data = {
+    clientIdEncrypted: encryptText(clientId!),
+    clientSecretEncrypted: encryptText(clientSecret!),
+    redirectUri,
+    scopes,
+  }
+
+  const existing = await prisma.providerConfig.findFirst({
     where: { userId: null, provider: 'google_drive', status: 'active' },
+    orderBy: { createdAt: 'desc' },
+  })
+
+  if (existing) {
+    await prisma.providerConfig.update({ where: { id: existing.id }, data })
+    console.log(`Updated global Google Drive config: ${existing.id}`)
+    return
+  }
+
+  await prisma.providerConfig.updateMany({
+    where: { userId: null, provider: 'google_drive' },
     data: { status: 'disabled' },
   })
 
   const config = await prisma.providerConfig.create({
-    data: {
-      userId: null,
-      provider: 'google_drive',
-      clientIdEncrypted: encryptText(clientId!),
-      clientSecretEncrypted: encryptText(clientSecret!),
-      redirectUri,
-      scopes,
-      status: 'active',
-    },
+    data: { userId: null, provider: 'google_drive', ...data, status: 'active' },
   })
 
   console.log(`Seeded global Google Drive config: ${config.id}`)
