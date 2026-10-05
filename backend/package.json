@@ -16,6 +16,7 @@
     "db:migrate:deploy": "prisma migrate deploy",
     "seed:google-config": "tsx src/scripts/seed-google-config.ts",
     "seed:google-config:docker": "tsx src/scripts/seed-google-config-if-present.ts",
+    "seed:dropbox-config:docker": "tsx src/scripts/seed-dropbox-config-if-present.ts",
     "test:s3": "tsx src/scripts/test-s3-connection.ts",
     "test:api-upload": "tsx src/scripts/test-api-upload.ts"
   },

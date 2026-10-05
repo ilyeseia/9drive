@@ -67,6 +67,9 @@ const envSchema = z
     GOOGLE_CLIENT_ID: z.string().optional(),
     GOOGLE_CLIENT_SECRET: z.string().optional(),
     GOOGLE_REDIRECT_URI: z.string().optional(),
+    DROPBOX_CLIENT_ID: z.string().optional(),
+    DROPBOX_CLIENT_SECRET: z.string().optional(),
+    DROPBOX_REDIRECT_URI: z.string().optional(),
   })
   .transform((value) => ({ ...value, PUBLIC_BASE_URL: value.PUBLIC_BASE_URL ?? value.FRONTEND_URL }))
 

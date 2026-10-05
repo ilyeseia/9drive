@@ -74,7 +74,7 @@ export async function apiFetchOptional<T>(path: string, options: ApiOptions = {}
   }
 }
 
-const DEFAULT_REDIRECT_HOSTS = ['accounts.google.com']
+const DEFAULT_REDIRECT_HOSTS = ['accounts.google.com', 'www.dropbox.com', 'dropbox.com']
 
 function allowedRedirectHosts(): Set<string> {
   const raw = import.meta.env.VITE_ALLOWED_REDIRECT_HOSTS

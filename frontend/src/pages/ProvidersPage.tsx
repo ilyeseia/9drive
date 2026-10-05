@@ -94,6 +94,7 @@ export function ProvidersPage() {
   const [message, setMessage] = useState('')
 
   const [connectingGoogle, setConnectingGoogle] = useState(false)
+  const [connectingDropbox, setConnectingDropbox] = useState(false)
   const [s3Open, setS3Open] = useState(false)
   const [connectingS3, setConnectingS3] = useState(false)
   const [s3Form, setS3Form] = useState({ name: '', bucket: '', region: 'us-east-1', endpoint: '', accessKeyId: '', secretAccessKey: '', forcePathStyle: false, quotaBytes: '' })
@@ -176,6 +177,51 @@ export function ProvidersPage() {
     }
   }
 
+  async function connectDropbox() {
+    setConnectingDropbox(true)
+    setMessage('')
+    const popup = window.open('', 'dropbox-connect', 'width=540,height=720')
+    if (popup) {
+      popup.document.write('<html><head><title>Connecting...</title><style>body{font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:#f8fafc;color:#64748b;}</style></head><body><div style="text-align:center;"><h2>Connecting to Dropbox...</h2><p>Please wait while we redirect you.</p></div></body></html>')
+    }
+    try {
+      const data = await apiFetch<{ url: string }>('/connected-accounts/dropbox/connect-url')
+      if (!isAllowedRedirectUrl(data.url)) {
+        throw new Error('Server returned an unexpected redirect URL.')
+      }
+      if (popup) {
+        popup.location.href = data.url
+      } else {
+        window.location.href = data.url
+      }
+
+      const startedAt = Date.now()
+      const timer = window.setInterval(() => {
+        if (popup?.closed || Date.now() - startedAt > 120_000) {
+          window.clearInterval(timer)
+          setConnectingDropbox(false)
+          load().then(notifyChanged).catch(() => undefined)
+          return
+        }
+        apiFetchOptional<{ accounts: { provider: string; status: string }[] }>('/connected-accounts')
+          .then((accounts) => {
+            const linked = accounts?.accounts.some((account) => account.provider === 'dropbox' && account.status === 'connected')
+            if (!linked) return
+            window.clearInterval(timer)
+            popup?.close()
+            setConnectingDropbox(false)
+            setMessage('Dropbox connected.')
+            load().then(notifyChanged).catch(() => undefined)
+          })
+          .catch(() => undefined)
+      }, 2000)
+    } catch (error) {
+      if (popup) popup.close()
+      setConnectingDropbox(false)
+      setMessage(error instanceof Error ? error.message : 'Failed to start Dropbox connection')
+    }
+  }
+
   async function connectS3(event: FormEvent) {
     event.preventDefault()
     setConnectingS3(true)
@@ -251,6 +297,7 @@ export function ProvidersPage() {
         actions={
           <>
             <Button variant="outline" size="sm" onClick={() => setS3Open(true)}><Database className="h-4 w-4" />Connect S3</Button>
+            <Button variant="outline" size="sm" onClick={connectDropbox} disabled={connectingDropbox}><Cloud className="h-4 w-4" />{connectingDropbox ? 'Connecting...' : 'Connect Dropbox'}</Button>
             <Button size="sm" onClick={connectDrive} disabled={connectingGoogle}><Link2 className="h-4 w-4" />{connectingGoogle ? 'Connecting...' : 'Connect Drive'}</Button>
           </>
         }
@@ -282,6 +329,7 @@ export function ProvidersPage() {
           <p className="mt-2 text-sm text-slate-500">Connect a Google Drive account or an S3-compatible bucket to start storing files.</p>
           <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
             <Button onClick={connectDrive} disabled={connectingGoogle}><Link2 className="h-4 w-4" />{connectingGoogle ? 'Opening...' : 'Connect Drive'}</Button>
+            <Button variant="outline" onClick={connectDropbox} disabled={connectingDropbox}><Cloud className="h-4 w-4" />{connectingDropbox ? 'Opening...' : 'Connect Dropbox'}</Button>
             <Button variant="outline" onClick={() => setS3Open(true)}><Database className="h-4 w-4" />Connect S3</Button>
           </div>
         </Card>

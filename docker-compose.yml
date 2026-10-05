@@ -55,7 +55,7 @@ services:
     build:
       context: ./backend
     restart: "no"
-    command: ["sh", "-c", "npx prisma migrate deploy && node dist/scripts/seed-google-config-if-present.js"]
+    command: ["sh", "-c", "npx prisma migrate deploy && node dist/scripts/seed-google-config-if-present.js && node dist/scripts/seed-dropbox-config-if-present.js"]
     environment: &backend-env
       DATABASE_URL: postgresql://${POSTGRES_USER:-9drive}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-9drive}?schema=public
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
@@ -75,6 +75,9 @@ services:
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
       GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-}
+      DROPBOX_CLIENT_ID: ${DROPBOX_CLIENT_ID:-}
+      DROPBOX_CLIENT_SECRET: ${DROPBOX_CLIENT_SECRET:-}
+      DROPBOX_REDIRECT_URI: ${DROPBOX_REDIRECT_URI:-}
       ALLOW_INSECURE_ENDPOINTS: ${ALLOW_INSECURE_ENDPOINTS:-false}
       SSRF_ALLOWLIST: ${SSRF_ALLOWLIST:-}
       WORKER_ENABLED: "false"
