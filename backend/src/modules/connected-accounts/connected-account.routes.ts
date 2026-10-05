@@ -7,6 +7,7 @@ import { requireAuth, type AuthRequest } from '../../middleware/auth.middleware.
 import { decryptText, encryptText, hashToken, randomToken } from '../../utils/crypto.js'
 import { hashPassword } from '../../utils/password.js'
 import { createOAuthClient, syncGoogleQuota } from '../google/google.service.js'
+import { refreshQuota } from '../../providers/health.js'
 import { resolveRouteError } from '../providers/http-error.js'
 import { connectRedirectUrl, createConnectUrl, handleConnectCallback } from '../providers/connect-flow.js'
 import { createS3Account, s3ConnectSchema } from '../providers/account-service.js'
@@ -16,7 +17,9 @@ export const connectedAccountRouter = Router()
 
 async function syncQuotaForAccount(account: { id: string; provider: string }) {
   if (account.provider === 's3') return syncS3Quota(account.id)
-  return syncGoogleQuota(account.id)
+  if (account.provider === 'google_drive') return syncGoogleQuota(account.id)
+  await refreshQuota(account.id)
+  return prisma.storageAccount.findUniqueOrThrow({ where: { connectedAccountId: account.id } })
 }
 
 connectedAccountRouter.get('/', requireAuth, async (req: AuthRequest, res, next) => {
