@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type DragEvent, type FormEvent, type MouseEvent } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { Archive, CheckCircle, ClipboardPaste, Download, FolderInput, FolderPlus, LayoutGrid, List, RefreshCw, Star, Trash2, Upload, X } from 'lucide-react'
+import { Archive, ArrowUpDown, CheckCircle, ClipboardPaste, Download, FolderInput, FolderPlus, LayoutGrid, List, RefreshCw, Star, Trash2, Upload, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { DummyModal } from '@/components/drive/DummyModal'
@@ -14,17 +14,20 @@ import { FolderGrid, type FolderSizeScale } from '@/components/drive/FolderGrid'
 import { defaultFolderColor, defaultFolderIconUrl, folderColorOptions, folderIconOptions, normalizeFolderColor } from '@/components/drive/FolderVisual'
 import { PageHeader } from '@/components/drive/PageHeader'
 import { Input } from '@/components/ui/input'
-import { API_URL, apiFetch, formatBytes, formatDate } from '@/lib/api'
+import { API_URL, apiFetch, apiFetchOptional } from '@/lib/api'
+import { formatBytes, formatDate, providerLabel } from '@/lib/format'
 import { getAccessToken } from '@/lib/auth'
+import { cn } from '@/lib/utils'
 import { createPlyr, ensurePlyr } from '@/lib/plyr'
 import { getPreviewKind, officeViewerUrl } from '@/lib/preview'
 import type { FileItem, FolderItem } from '@/data/drive-data'
 import { useUpload } from '@/context/UploadContext'
 import { useDriveLayoutActions } from '@/layouts/DriveLayout'
 
-type BackendFile = { id: string; name: string; mimeType: string; sizeBytes: string; createdAt: string; folderId?: string | null; connectedAccount?: { email: string; provider: string }; folder?: { id: string; name: string } | null }
+export type BackendFile = { id: string; name: string; mimeType: string; sizeBytes: string; createdAt: string; folderId?: string | null; connectedAccount?: { email: string; provider: string }; folder?: { id: string; name: string } | null }
 type BackendFolder = { id: string; name: string; color: string; iconUrl?: string | null; parentId?: string | null; providerFolderId?: string | null; updatedAt: string }
 type ConnectedAccount = { id: string; provider: string; email: string; displayName?: string | null; status: string }
+type ProviderListResponse = { accounts?: { provider?: string }[]; items?: { provider?: string }[]; providers?: { provider?: string }[] } | { provider?: string }[]
 
 const sizeActiveClasses: Record<FolderSizeScale, string> = {
   xs: 'bg-white text-slate-800 dark:bg-red-500/20 dark:text-red-300 dark:border-red-500/30 shadow-sm dark:shadow-none',
@@ -36,6 +39,8 @@ const sizeActiveClasses: Record<FolderSizeScale, string> = {
 type FileViewMode = 'list' | 'grid'
 
 const fileViewStorageKey = '9drive:all-files-view-mode'
+
+const FILE_PAGE_LIMIT = 50
 
 function getStoredFileViewMode(): FileViewMode {
   const stored = localStorage.getItem(fileViewStorageKey)
@@ -49,13 +54,8 @@ function mimeToKind(mimeType: string): FileItem['kind'] {
   return 'doc'
 }
 
-function providerLabel(provider: string | undefined) {
-  if (provider === 's3') return 'S3 Storage'
-  return 'Google Drive'
-}
-
-function mapFile(file: BackendFile): FileItem {
-  return { id: file.id, name: file.name, mimeType: file.mimeType, sizeBytes: file.sizeBytes, createdAt: file.createdAt, accountEmail: file.connectedAccount?.email, accountProvider: providerLabel(file.connectedAccount?.provider), date: formatDate(file.createdAt), size: formatBytes(file.sizeBytes), access: file.connectedAccount?.email ?? providerLabel(file.connectedAccount?.provider), kind: mimeToKind(file.mimeType), shared: 1, folderId: file.folderId, folderName: file.folder?.name }
+export function mapFile(file: BackendFile): FileItem {
+  return { id: file.id, name: file.name, mimeType: file.mimeType, sizeBytes: file.sizeBytes, createdAt: file.createdAt, accountEmail: file.connectedAccount?.email, provider: file.connectedAccount?.provider, accountProvider: providerLabel(file.connectedAccount?.provider), date: formatDate(file.createdAt), size: formatBytes(file.sizeBytes), access: file.connectedAccount?.email ?? providerLabel(file.connectedAccount?.provider), kind: mimeToKind(file.mimeType), shared: 1, folderId: file.folderId, folderName: file.folder?.name }
 }
 
 function mapFolder(folder: BackendFolder): FolderItem {
@@ -136,13 +136,17 @@ export function AllFilesPage() {
   const { setHeaderActions } = useDriveLayoutActions()
   const [connectedAccounts, setConnectedAccounts] = useState<ConnectedAccount[]>([])
   const [selectedTargetAccountId, setSelectedTargetAccountId] = useState('')
+  const [nextCursor, setNextCursor] = useState<string | null>(null)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [totalCount, setTotalCount] = useState<number | null>(null)
+  const [providerFilterOptions, setProviderFilterOptions] = useState<string[]>([])
 
   function changeFolderSize(scale: FolderSizeScale) {
     setFolderSizeScale(scale)
     localStorage.setItem('9drive:folder-size', scale)
   }
 
-  async function loadFiles() {
+  async function loadFiles(signal?: AbortSignal, cursor?: string) {
     const params = new URLSearchParams()
     if (activeFolderId) params.set('folderId', activeFolderId)
     if (searchQuery) params.set('q', searchQuery)
@@ -154,6 +158,9 @@ export function AllFilesPage() {
     const maxSize = searchParams.get('maxSize')
     const startDate = searchParams.get('startDate')
     const endDate = searchParams.get('endDate')
+    const provider = searchParams.get('provider')
+    const sort = searchParams.get('sort')
+    const order = searchParams.get('order')
 
     if (kind) params.set('kind', kind)
     if (accountId) params.set('accountId', accountId)
@@ -161,25 +168,68 @@ export function AllFilesPage() {
     if (maxSize) params.set('maxSize', maxSize)
     if (startDate) params.set('startDate', startDate)
     if (endDate) params.set('endDate', endDate)
+    if (provider) params.set('provider', provider)
+    if (sort) params.set('sort', sort)
+    if (order) params.set('order', order)
+    if (cursor) params.set('cursor', cursor)
+    params.set('limit', String(FILE_PAGE_LIMIT))
 
     const query = params.toString()
     const path = query ? `/files?${query}` : '/files'
-    const data = await apiFetch<{ files: BackendFile[] }>(path)
-    setFiles(data.files.map(mapFile))
+    const data = await apiFetch<{ files?: BackendFile[]; items?: BackendFile[]; nextCursor?: string }>(path, { signal })
+    const mapped = (data.files ?? data.items ?? []).map(mapFile)
+    setFiles((current) => (cursor ? [...current, ...mapped] : mapped))
+    setNextCursor(data.nextCursor ?? null)
   }
 
-  async function loadFolders() {
+  async function loadFolders(signal?: AbortSignal) {
     const visiblePath = activeFolderId ? `/folders?parentId=${activeFolderId}` : '/folders'
     const [visibleData, allData] = await Promise.all([
-      apiFetch<{ folders: BackendFolder[] }>(visiblePath),
-      apiFetch<{ folders: BackendFolder[] }>('/folders?all=1'),
+      apiFetch<{ folders: BackendFolder[] }>(visiblePath, { signal }),
+      apiFetch<{ folders: BackendFolder[] }>('/folders?all=1', { signal }),
     ])
     setFolders(visibleData.folders.map(mapFolder))
     setAllFolders(allData.folders.map(mapFolder))
   }
 
-  async function loadAll() {
-    await Promise.all([loadFiles(), loadFolders()])
+  async function loadStats(signal?: AbortSignal) {
+    try {
+      const stats = await apiFetchOptional<{ fileCount: number; folderCount: number; bytes: string }>('/stats', { signal })
+      if (stats) setTotalCount(stats.fileCount)
+    } catch {
+      // stats endpoint is optional — ignore (including aborts)
+    }
+  }
+
+  async function loadAll(signal?: AbortSignal) {
+    await Promise.all([loadFiles(signal), loadFolders(signal), loadStats(signal)])
+  }
+
+  async function loadMoreFiles() {
+    if (!nextCursor || loadingMore) return
+    setLoadingMore(true)
+    try {
+      await loadFiles(undefined, nextCursor)
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Failed to load more files')
+    } finally {
+      setLoadingMore(false)
+    }
+  }
+
+  function updateSort(value: string) {
+    const [sort, order] = value.split(':')
+    const next = new URLSearchParams(searchParams)
+    if (sort) next.set('sort', sort)
+    if (order) next.set('order', order)
+    setSearchParams(next)
+  }
+
+  function setProviderFilter(provider: string) {
+    const next = new URLSearchParams(searchParams)
+    if (provider) next.set('provider', provider)
+    else next.delete('provider')
+    setSearchParams(next)
   }
 
   async function handleDropItem(fileId: string, targetFolderId: string) {
@@ -203,20 +253,41 @@ export function AllFilesPage() {
   }
 
   useEffect(() => {
-    loadAll().catch((error) => setMessage(error instanceof Error ? error.message : 'Failed to load files'))
+    const controller = new AbortController()
+    loadAll(controller.signal).catch((error) => {
+      if (controller.signal.aborted) return
+      setMessage(error instanceof Error ? error.message : 'Failed to load files')
+    })
     setSelectedFileIds(new Set())
-  }, [activeFolderId, searchQuery])
+    return () => controller.abort()
+  }, [searchParams])
 
   useEffect(() => {
-    async function loadConnectedAccounts() {
+    const controller = new AbortController()
+    const { signal } = controller
+
+    async function loadAccountsAndProviders() {
+      let localAccounts: ConnectedAccount[] = []
       try {
-        const data = await apiFetch<{ accounts: ConnectedAccount[] }>('/connected-accounts')
-        setConnectedAccounts(data.accounts || [])
+        const data = await apiFetch<{ accounts: ConnectedAccount[] }>('/connected-accounts', { signal })
+        localAccounts = data.accounts || []
+        setConnectedAccounts(localAccounts)
       } catch (error) {
-        console.error('Failed to load connected accounts:', error)
+        if (!signal.aborted) console.error('Failed to load connected accounts:', error)
+      }
+      try {
+        const providers = await apiFetchOptional<ProviderListResponse>('/providers', { signal })
+        const list = Array.isArray(providers) ? providers : (providers?.accounts ?? providers?.items ?? providers?.providers ?? [])
+        const ids = list.map((entry) => entry.provider).filter((value): value is string => Boolean(value))
+        const fallbackIds = localAccounts.map((account) => account.provider).filter(Boolean)
+        setProviderFilterOptions(Array.from(new Set(ids.length > 0 ? ids : fallbackIds)))
+      } catch (error) {
+        if (!signal.aborted) console.error('Failed to load provider filter options:', error)
       }
     }
-    loadConnectedAccounts()
+
+    loadAccountsAndProviders()
+    return () => controller.abort()
   }, [])
 
   useEffect(() => {
@@ -486,6 +557,21 @@ export function AllFilesPage() {
     await loadFiles()
   }
 
+  async function copyFile() {
+    if (!activeFile?.id) return
+    setContextMenu({ x: 0, y: 0, file: null })
+    setMessage('')
+    try {
+      const targetFolderId = activeFile.folderId ?? activeFolderId ?? undefined
+      await apiFetch(`/files/${activeFile.id}/copy`, { method: 'POST', body: JSON.stringify(targetFolderId ? { folderId: targetFolderId } : {}) })
+      setMessage(`Copied "${activeFile.name}".`)
+      await loadFiles()
+      window.dispatchEvent(new Event('9drive:storage-changed'))
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Failed to copy file')
+    }
+  }
+
   async function deleteFile() {
     const selectedIds = [...selectedFileIds]
     if (selectedIds.length > 0) await apiFetch('/files/batch', { method: 'DELETE', body: JSON.stringify({ fileIds: selectedIds }) })
@@ -685,6 +771,8 @@ export function AllFilesPage() {
   })()
   const allVisibleSelected = files.length > 0 && files.every((file) => file.id && selectedFileIds.has(file.id))
   const activePreviewKind = getPreviewKind(activeFile?.mimeType)
+  const providerFilter = searchParams.get('provider') ?? ''
+  const sortValue = `${searchParams.get('sort') ?? 'createdAt'}:${searchParams.get('order') ?? 'desc'}`
 
   return (
     <>
@@ -713,8 +801,43 @@ export function AllFilesPage() {
       </> : null}
       <div className="mt-4 flex flex-col gap-2 sm:mt-5 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex flex-wrap items-center gap-3"><Button variant="soft" className="hidden sm:inline-flex"><Archive className="h-4 w-4" />Recents</Button><Button variant="soft" className="hidden sm:inline-flex"><Star className="h-4 w-4" />Starred</Button>{selectedFileIds.size > 0 ? <div className="flex w-full flex-col gap-3 rounded-2xl border border-orange-500/20 bg-orange-500/10 p-3 sm:w-auto sm:flex-row sm:items-center sm:border-0 sm:bg-transparent sm:p-0"><span className="text-sm font-extrabold text-slate-700">{selectedFileIds.size} selected</span><div className="grid grid-cols-4 gap-2 sm:flex sm:gap-3"><Button className="w-full" variant="outline" onClick={downloadBatchAsZip}><Download className="h-4 w-4" />ZIP</Button><Button className="w-full" variant="outline" onClick={() => setMoveOpen(true)}><FolderInput className="h-4 w-4" />Move</Button><Button className="w-full" variant="danger" onClick={() => setDeleteOpen(true)}><Trash2 className="h-4 w-4" />Delete</Button><Button className="w-full" variant="ghost" onClick={clearSelection}>Clear</Button></div></div> : null}</div>
-        <div className="flex gap-3"><Button variant={fileViewMode === 'grid' ? 'soft' : 'outline'} size="icon" aria-label="Show files as grid" aria-pressed={fileViewMode === 'grid'} onClick={() => changeFileViewMode('grid')}><LayoutGrid className="h-5 w-5" /></Button><Button variant={fileViewMode === 'list' ? 'soft' : 'outline'} size="icon" aria-label="Show files as list" aria-pressed={fileViewMode === 'list'} onClick={() => changeFileViewMode('list')}><List className="h-5 w-5" /></Button></div>
+        <div className="flex gap-3">
+          <label className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-2.5 shadow-sm" title="Sort files">
+            <ArrowUpDown className="h-4 w-4 text-slate-400" />
+            <select aria-label="Sort files" className="h-9 bg-transparent text-xs font-bold text-slate-600 outline-none" value={sortValue} onChange={(event) => updateSort(event.target.value)}>
+              <option value="createdAt:desc">Newest first</option>
+              <option value="createdAt:asc">Oldest first</option>
+              <option value="name:asc">Name A-Z</option>
+              <option value="name:desc">Name Z-A</option>
+              <option value="size:desc">Largest first</option>
+              <option value="size:asc">Smallest first</option>
+            </select>
+          </label>
+          <Button variant={fileViewMode === 'grid' ? 'soft' : 'outline'} size="icon" aria-label="Show files as grid" aria-pressed={fileViewMode === 'grid'} onClick={() => changeFileViewMode('grid')}><LayoutGrid className="h-5 w-5" /></Button><Button variant={fileViewMode === 'list' ? 'soft' : 'outline'} size="icon" aria-label="Show files as list" aria-pressed={fileViewMode === 'list'} onClick={() => changeFileViewMode('list')}><List className="h-5 w-5" /></Button>
+        </div>
       </div>
+      {providerFilterOptions.length > 0 ? (
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Provider</span>
+          <button
+            type="button"
+            onClick={() => setProviderFilter('')}
+            className={cn('rounded-full border px-3 py-1 text-xs font-bold transition-colors', providerFilter ? 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50' : 'border-blue-600/20 bg-blue-600/10 text-blue-600')}
+          >
+            All
+          </button>
+          {providerFilterOptions.map((provider) => (
+            <button
+              key={provider}
+              type="button"
+              onClick={() => setProviderFilter(provider)}
+              className={cn('rounded-full border px-3 py-1 text-xs font-bold transition-colors', providerFilter === provider ? 'border-blue-600/20 bg-blue-600/10 text-blue-600' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50')}
+            >
+              {providerLabel(provider)}
+            </button>
+          ))}
+        </div>
+      ) : null}
       {cutFolder ? <p className="mt-3 rounded-xl bg-amber-50 p-3 text-sm font-semibold text-amber-700"><ClipboardPaste className="mr-2 inline h-4 w-4" />Cut folder: {cutFolder.name}. Press Ctrl+V or right-click empty area to paste here.</p> : null}
       {files.length === 0 ? (
         <Card className="mt-3 p-5 bg-white/10 backdrop-blur-sm border border-white/20 dark:bg-transparent dark:border-0 dark:p-0 dark:shadow-none">
@@ -729,9 +852,21 @@ export function AllFilesPage() {
           )}
         </Card>
       )}
+      {files.length > 0 ? (
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm text-slate-500">
+          <span>
+            Showing {files.length}{totalCount !== null ? ` of ${totalCount}` : ''} file{files.length === 1 ? '' : 's'}
+          </span>
+          {nextCursor ? (
+            <Button variant="outline" size="sm" onClick={loadMoreFiles} disabled={loadingMore}>
+              {loadingMore ? 'Loading...' : 'Load more'}
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
       </div>
       <EmptyAreaContextMenu x={emptyContextMenu.x} y={emptyContextMenu.y} open={emptyContextMenu.open} canPasteFolder={Boolean(cutFolder)} onClose={() => setEmptyContextMenu({ x: 0, y: 0, open: false })} onUpload={() => { setUploadOpen(true); setEmptyContextMenu({ x: 0, y: 0, open: false }) }} onCreateFolder={() => { setFolderOpen(true); setEmptyContextMenu({ x: 0, y: 0, open: false }) }} onPasteFolder={() => { pasteFolder().catch((error) => setMessage(error instanceof Error ? error.message : 'Failed to paste folder')); setEmptyContextMenu({ x: 0, y: 0, open: false }) }} />
-      <FileContextMenu x={contextMenu.x} y={contextMenu.y} file={contextMenu.file} onClose={() => setContextMenu({ x: 0, y: 0, file: null })} onView={viewFile} onDownload={downloadFile} onRename={() => { setRenameValue(activeFile?.name ?? ''); setRenameOpen(true); setContextMenu({ x: 0, y: 0, file: null }) }} onMove={() => { setMoveOpen(true); setContextMenu({ x: 0, y: 0, file: null }) }} onDetails={() => { setDetailOpen(true); setContextMenu({ x: 0, y: 0, file: null }) }} onShare={shareFile} onCopyLink={copyShareLinkDirect} onInvite={inviteToFile} onDelete={() => { setDeleteOpen(true); setContextMenu({ x: 0, y: 0, file: null }) }} />
+      <FileContextMenu x={contextMenu.x} y={contextMenu.y} file={contextMenu.file} onClose={() => setContextMenu({ x: 0, y: 0, file: null })} onView={viewFile} onDownload={downloadFile} onRename={() => { setRenameValue(activeFile?.name ?? ''); setRenameOpen(true); setContextMenu({ x: 0, y: 0, file: null }) }} onMove={() => { setMoveOpen(true); setContextMenu({ x: 0, y: 0, file: null }) }} onCopy={copyFile} onDetails={() => { setDetailOpen(true); setContextMenu({ x: 0, y: 0, file: null }) }} onShare={shareFile} onCopyLink={copyShareLinkDirect} onInvite={inviteToFile} onDelete={() => { setDeleteOpen(true); setContextMenu({ x: 0, y: 0, file: null }) }} />
       <FolderContextMenu x={folderContextMenu.x} y={folderContextMenu.y} folder={folderContextMenu.folder} onClose={() => setFolderContextMenu({ x: 0, y: 0, folder: null })} onCut={() => cutSelectedFolder(activeFolderForMenu)} onRename={() => { setFolderRenameValue(activeFolderForMenu?.name ?? ''); setFolderRenameColor(normalizeFolderColor(activeFolderForMenu?.color)); setFolderRenameIconUrl(activeFolderForMenu?.iconUrl ?? defaultFolderIconUrl); setFolderRenameOpen(true); setFolderContextMenu({ x: 0, y: 0, folder: null }) }} onInvite={inviteToFolder} onCopyLink={copyFolderLink} onDelete={() => { setFolderDeleteOpen(true); setFolderContextMenu({ x: 0, y: 0, folder: null }) }} />
       <FileDetailsDrawer open={detailOpen} file={activeFile} onClose={() => setDetailOpen(false)} />
 
@@ -785,7 +920,7 @@ export function AllFilesPage() {
           </div>
           {copiedShareLink ? <p className="rounded-xl bg-emerald-50 p-3 text-sm font-semibold text-emerald-700">Share link copied to clipboard.</p> : null}
 
-          {activeFile?.accountProvider === 'google_drive' && (
+          {activeFile?.provider === 'google_drive' && (
             <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800 grid gap-3">
               <div>
                 <label className="text-xs font-bold text-slate-500 block mb-1">Google Drive Direct Link (Public Access)</label>
@@ -804,7 +939,10 @@ export function AllFilesPage() {
                     if (!activeFile?.id) return
                     setMakingPublic(true)
                     try {
-                      const res = await apiFetch<{ url: string }>('/files/' + activeFile.id + '/public-permission', { method: 'POST' })
+                      const res = await apiFetch<{ url: string }>('/files/' + activeFile.id + '/public-permission', {
+                        method: 'POST',
+                        body: JSON.stringify({ intent: 'files:share' }),
+                      })
                       setGdrivePublicUrl(res.url)
                       await navigator.clipboard.writeText(res.url)
                     } catch (err: any) {
@@ -839,7 +977,7 @@ export function AllFilesPage() {
           {!previewLoading && !previewError && activePreviewKind === 'image' && previewUrl ? <img src={previewUrl} alt={activeFile?.name ?? 'File preview'} className="max-h-full max-w-full object-contain" onError={() => setPreviewError('Failed to load preview.')} /> : null}
           {!previewLoading && !previewError && activePreviewKind === 'video' && previewUrl ? <div className="shared-video-shell"><video ref={previewVideoRef} controls playsInline preload="metadata" onError={() => setPreviewError('Failed to load preview.')}><source src={previewUrl} type={activeFile?.mimeType} /></video></div> : null}
           {!previewLoading && !previewError && activePreviewKind === 'document' && previewUrl ? <iframe src={previewUrl} title={activeFile?.name ?? 'File preview'} className="h-full w-full border-0 bg-white" /> : null}
-          {!previewLoading && !previewError && activePreviewKind === 'office' && previewUrl ? <iframe src={officeViewerUrl(previewUrl)} title={activeFile?.name ?? 'File preview'} className="h-full w-full border-0 bg-white" /> : null}
+          {!previewLoading && !previewError && activePreviewKind === 'office' && previewUrl ? (officeViewerUrl(previewUrl) ? <iframe src={officeViewerUrl(previewUrl) as string} title={activeFile?.name ?? 'File preview'} className="h-full w-full border-0 bg-white" /> : <div className="p-6 text-center text-sm text-slate-500">Office preview is disabled on this deployment. Use Download instead.</div>) : null}
           {!previewLoading && !previewError && !activePreviewKind ? <div className="p-6 text-center text-sm text-slate-500">Preview not available for this file type. Use Download instead.</div> : null}
         </div>
       </DummyModal>

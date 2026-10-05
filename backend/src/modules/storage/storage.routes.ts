@@ -1,20 +1,20 @@
 import { Router } from 'express'
-import { z } from 'zod'
 import { prisma } from '../../config/prisma.js'
 import { requireAuth, type AuthRequest } from '../../middleware/auth.middleware.js'
+import {
+  routingPolicyUpdateSchema,
+  serializeRoutingPolicy,
+  updateRoutingPolicy,
+} from '../routing/routing.service.js'
 
 export const storageRouter = Router()
 storageRouter.use(requireAuth)
 
-type BreakdownRow = { kind: string; bytes: bigint | number | string | null }
+type BreakdownRow = { kind: string; bytes: bigint }
 
-function bytesToString(value: bigint | number | string | null | undefined) {
-  if (value === null || value === undefined) return '0'
+function bytesToString(value: bigint) {
   return value.toString()
 }
-
-const routingModes = ['most_available', 'round_robin', 'priority'] as const
-const routingPolicySchema = z.object({ mode: z.enum(routingModes), priorityAccountIds: z.array(z.string().min(1)).max(100).optional() })
 
 function normalizePriorityAccountIds(value: unknown) {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
@@ -70,17 +70,9 @@ storageRouter.get('/routing-policy', async (req: AuthRequest, res, next) => {
 
 storageRouter.patch('/routing-policy', async (req: AuthRequest, res, next) => {
   try {
-    const body = routingPolicySchema.parse(req.body)
-    const accountIds = [...new Set(body.priorityAccountIds ?? [])]
-    const validAccounts = accountIds.length === 0 ? [] : await prisma.connectedAccount.findMany({ where: { id: { in: accountIds }, userId: req.user!.id, status: 'connected' }, select: { id: true } })
-    const validIds = new Set(validAccounts.map((account) => account.id))
-    const priorityAccountIds = accountIds.filter((id) => validIds.has(id))
-    const policy = await prisma.uploadRoutingPolicy.upsert({
-      where: { userId: req.user!.id },
-      create: { userId: req.user!.id, mode: body.mode, priorityAccountIds, roundRobinCursor: 0 },
-      update: { mode: body.mode, priorityAccountIds, ...(body.mode !== 'round_robin' ? { roundRobinCursor: 0 } : {}) },
-    })
-    return res.json({ policy: { id: policy.id, mode: policy.mode, priorityAccountIds: normalizePriorityAccountIds(policy.priorityAccountIds), roundRobinCursor: policy.roundRobinCursor } })
+    const body = routingPolicyUpdateSchema.parse(req.body)
+    const policy = await updateRoutingPolicy(req.user!.id, body)
+    return res.json({ policy: serializeRoutingPolicy(policy) })
   } catch (error) {
     return next(error)
   }
@@ -95,9 +87,9 @@ storageRouter.get('/breakdown', async (req: AuthRequest, res, next) => {
           WHEN mime_type LIKE 'video/%' THEN 'video'
           ELSE 'document'
         END AS kind,
-        COALESCE(SUM(size_bytes), 0) AS bytes
+        COALESCE(SUM(size_bytes), 0)::bigint AS bytes
       FROM files
-      WHERE user_id = ${req.user!.id} AND status = 'active'
+      WHERE user_id = ${req.user!.id}::uuid AND status = 'active'
       GROUP BY kind
     `
     const breakdown = { photo: '0', video: '0', document: '0' }

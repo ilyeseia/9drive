@@ -1,4 +1,6 @@
+import { Prisma } from '@prisma/client'
 import { prisma } from '../config/prisma.js'
+import { serializeBigInt } from './serialize.js'
 
 export async function createAuditLog(userId: string, action: string, entityType: string, entityId?: string, metadata?: any) {
   try {
@@ -8,7 +10,7 @@ export async function createAuditLog(userId: string, action: string, entityType:
         action,
         entityType,
         entityId,
-        metadata: metadata ? JSON.stringify(metadata) : undefined
+        metadata: metadata == null ? undefined : (serializeBigInt(metadata) as Prisma.InputJsonValue)
       }
     })
   } catch (error) {

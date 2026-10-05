@@ -4,7 +4,8 @@ import { MetricCard } from '@/components/drive/MetricCard'
 import { PageHeader } from '@/components/drive/PageHeader'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
-import { apiFetch, formatBytes, formatDate } from '@/lib/api'
+import { apiFetch } from '@/lib/api'
+import { formatBytes, formatDate } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
 type InviteTarget = { id: string; name: string; type: 'file' | 'folder'; mimeType?: string; sizeBytes?: string }

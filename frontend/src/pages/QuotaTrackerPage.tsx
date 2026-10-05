@@ -3,18 +3,14 @@ import { CheckCircle, Cloud, Database, Filter, Gauge, Link2, RefreshCw } from 'l
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { PageHeader } from '@/components/drive/PageHeader'
-import { apiFetch, formatBytes } from '@/lib/api'
+import { apiFetch, isAllowedRedirectUrl } from '@/lib/api'
+import { formatBytes, providerLabel } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
 type StorageSummary = { totalBytes: string; usedBytes: string; availableBytes: string }
 type ConnectedAccount = { id: string; email: string; displayName?: string | null; provider: string; status: string; storageAccount?: { totalBytes: string | null; usedBytes: string; availableBytes: string | null; lastSyncedAt: string | null } | null }
 type RoutingMode = 'most_available' | 'round_robin' | 'priority'
 type RoutingPolicy = { mode: RoutingMode; priorityAccountIds: string[]; roundRobinCursor: number }
-
-function providerLabel(provider: string) {
-  if (provider === 's3') return 'S3 Storage'
-  return 'Google Drive'
-}
 
 function ProviderIcon({ provider }: { provider: string }) {
   const Icon = provider === 's3' ? Database : Cloud
@@ -99,6 +95,9 @@ export function QuotaTrackerPage() {
     }
     try {
       const data = await apiFetch<{ url: string }>('/connected-accounts/google/connect-url')
+      if (!isAllowedRedirectUrl(data.url)) {
+        throw new Error('Server returned an unexpected redirect URL.')
+      }
       if (popup) {
         popup.location.href = data.url
       } else {
@@ -106,6 +105,7 @@ export function QuotaTrackerPage() {
       }
     } catch (e) {
       if (popup) popup.close()
+      setMessage(e instanceof Error ? e.message : 'Failed to start Google Drive connection')
       console.error('Failed to start Google Drive connection from Quota Tracker', e)
     }
   }

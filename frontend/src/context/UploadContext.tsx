@@ -146,6 +146,7 @@ export function UploadProvider({ children }: { children: ReactNode }) {
     // Dispatch global events so active pages reload their data
     window.dispatchEvent(new Event('9drive:storage-changed'))
     window.dispatchEvent(new Event('9drive:upload-completed'))
+    window.dispatchEvent(new Event('9drive:jobs-changed'))
   }
 
   async function retryFailedUpload(fileName: string) {
@@ -182,6 +183,7 @@ export function UploadProvider({ children }: { children: ReactNode }) {
 
       window.dispatchEvent(new Event('9drive:storage-changed'))
       window.dispatchEvent(new Event('9drive:upload-completed'))
+      window.dispatchEvent(new Event('9drive:jobs-changed'))
     } catch (err) {
       console.error('Retry upload failed:', fileName, err)
       setUploadProgress((current) => {

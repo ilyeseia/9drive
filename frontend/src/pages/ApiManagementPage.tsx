@@ -4,7 +4,8 @@ import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { DummyModal } from '@/components/drive/DummyModal'
 import { PageHeader } from '@/components/drive/PageHeader'
-import { API_URL, apiFetch, formatDate } from '@/lib/api'
+import { API_URL, apiFetch } from '@/lib/api'
+import { formatDate } from '@/lib/format'
 
 type ApiKey = { id: string; name: string; keyPrefix: string; scopes: string[]; status: string; lastUsedAt: string | null; expiresAt: string | null; revokedAt: string | null; createdAt: string }
 

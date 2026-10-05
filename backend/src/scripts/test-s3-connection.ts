@@ -17,7 +17,7 @@ async function main() {
 
   try {
     await testS3Connection(config)
-    const listed = await createS3Client(config).send(new ListObjectsV2Command({ Bucket: config.bucket, Prefix: config.prefix, MaxKeys: 1 }))
+    const listed = await (await createS3Client(config)).send(new ListObjectsV2Command({ Bucket: config.bucket, Prefix: config.prefix, MaxKeys: 1 }))
     console.log(JSON.stringify({ ok: true, accountId: config.connectedAccountId, bucket: config.bucket, endpoint: config.endpoint, region: config.region, prefix: config.prefix, keyCount: listed.KeyCount ?? 0, isTruncated: listed.IsTruncated ?? false }))
   } catch (error) {
     console.error(JSON.stringify({ ok: false, accountId: config.connectedAccountId, bucket: config.bucket, endpoint: config.endpoint, name: error instanceof Error ? error.name : 'Error', message: error instanceof Error ? error.message : 'S3 connection failed' }))

@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { GoogleLogo } from '@/components/auth/GoogleLogo'
 import { Input } from '@/components/ui/input'
-import { apiFetch } from '@/lib/api'
+import { apiFetch, isAllowedRedirectUrl } from '@/lib/api'
 import { setAuthSession, type AuthUser } from '@/lib/auth'
 
 type AuthResponse = { accessToken: string; refreshToken: string; user: AuthUser }
@@ -62,6 +62,9 @@ export function RegisterPage() {
     setError('')
     try {
       const data = await apiFetch<{ url: string }>('/auth/google/url', { skipAuth: true })
+      if (!isAllowedRedirectUrl(data.url)) {
+        throw new Error('Server returned an unexpected redirect URL.')
+      }
       window.location.href = data.url
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Google register failed')

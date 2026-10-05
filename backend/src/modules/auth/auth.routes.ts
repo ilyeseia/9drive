@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { prisma } from '../../config/prisma.js'
 import { env } from '../../config/env.js'
 import { requireAuth, type AuthRequest } from '../../middleware/auth.middleware.js'
+import { authLoginLimiter, clearLoginFailures, googleExchangeLimiter, isLoginLocked, refreshLimiter, registerLimiter, registerLoginFailure } from '../../middleware/security.middleware.js'
 import { hashPassword, verifyPassword } from '../../utils/password.js'
 import { encryptText, hashToken, randomToken } from '../../utils/crypto.js'
 import { signAccessToken } from '../../utils/jwt.js'
@@ -11,8 +12,9 @@ import { createOAuthClient, syncGoogleQuota } from '../google/google.service.js'
 
 export const authRouter = Router()
 
-const registerSchema = z.object({ name: z.string().min(2), email: z.string().email(), password: z.string().min(8), captchaToken: z.string().optional() })
-const loginSchema = z.object({ email: z.string().email(), password: z.string().min(1) })
+const emailField = z.string().trim().email().transform((value) => value.toLowerCase())
+export const registerSchema = z.object({ name: z.string().min(2), email: emailField, password: z.string().min(8), captchaToken: z.string().optional() })
+export const loginSchema = z.object({ email: emailField, password: z.string().min(1) })
 const refreshSchema = z.object({ refreshToken: z.string().min(1) })
 const googleExchangeSchema = z.object({ token: z.string().min(1) })
 
@@ -40,11 +42,11 @@ async function verifyCaptcha(token: string | undefined) {
   return Boolean(data.success)
 }
 
-authRouter.post('/register', async (req, res, next) => {
+authRouter.post('/register', registerLimiter, async (req, res, next) => {
   try {
     const body = registerSchema.parse(req.body)
     if (!(await verifyCaptcha(body.captchaToken))) return res.status(400).json({ code: 'CAPTCHA_FAILED', message: 'Captcha verification failed.' })
-    const existing = await prisma.user.findUnique({ where: { email: body.email } })
+    const existing = await prisma.user.findFirst({ where: { email: { equals: body.email, mode: 'insensitive' } } })
     if (existing) return res.status(409).json({ code: 'AUTH_EMAIL_TAKEN', message: 'Email already registered.' })
     const user = await prisma.user.create({ data: { name: body.name, email: body.email, passwordHash: await hashPassword(body.password) } })
     const tokens = await createSession(user.id, req)
@@ -54,11 +56,16 @@ authRouter.post('/register', async (req, res, next) => {
   }
 })
 
-authRouter.post('/login', async (req, res, next) => {
+authRouter.post('/login', authLoginLimiter, async (req, res, next) => {
   try {
     const body = loginSchema.parse(req.body)
-    const user = await prisma.user.findUnique({ where: { email: body.email } })
-    if (!user || !(await verifyPassword(user.passwordHash, body.password))) return res.status(401).json({ code: 'AUTH_INVALID_CREDENTIALS', message: 'Invalid email or password.' })
+    if (await isLoginLocked(body.email)) return res.status(429).json({ code: 'RATE_LIMITED', message: 'Too many failed login attempts. Please try again later.' })
+    const user = await prisma.user.findFirst({ where: { email: { equals: body.email, mode: 'insensitive' } } })
+    if (!user || !(await verifyPassword(user.passwordHash, body.password))) {
+      await registerLoginFailure(body.email)
+      return res.status(401).json({ code: 'AUTH_INVALID_CREDENTIALS', message: 'Invalid email or password.' })
+    }
+    await clearLoginFailures(body.email)
     const tokens = await createSession(user.id, req)
     return res.json({ ...tokens, user: { id: user.id, name: user.name, email: user.email } })
   } catch (error) {
@@ -100,7 +107,7 @@ authRouter.get('/google/callback', async (req, res) => {
     const oauth2 = google.oauth2({ version: 'v2', auth: client })
     const profile = await oauth2.userinfo.get()
     const providerAccountId = profile.data.id
-    const email = profile.data.email
+    const email = profile.data.email?.trim().toLowerCase()
     if (!providerAccountId || !email) return res.redirect(`${env.FRONTEND_URL}/google-auth?status=error`)
 
     const name = profile.data.name || email.split('@')[0] || 'Google User'
@@ -154,7 +161,7 @@ authRouter.get('/google/callback', async (req, res) => {
   }
 })
 
-authRouter.post('/google/exchange', async (req, res, next) => {
+authRouter.post('/google/exchange', googleExchangeLimiter, async (req, res, next) => {
   try {
     const body = googleExchangeSchema.parse(req.body)
     const handoff = await prisma.authHandoff.findFirst({ where: { tokenHash: hashToken(body.token), usedAt: null, expiresAt: { gt: new Date() } }, include: { user: true } })
@@ -167,12 +174,28 @@ authRouter.post('/google/exchange', async (req, res, next) => {
   }
 })
 
-authRouter.post('/refresh', async (req, res, next) => {
+authRouter.post('/refresh', refreshLimiter, async (req, res, next) => {
   try {
     const body = refreshSchema.parse(req.body)
-    const session = await prisma.userSession.findFirst({ where: { refreshTokenHash: hashToken(body.refreshToken), revokedAt: null, expiresAt: { gt: new Date() } } })
+    const presented = hashToken(body.refreshToken)
+    const session = await prisma.userSession.findFirst({
+      where: {
+        OR: [{ refreshTokenHash: presented }, { prevRefreshTokenHash: presented }],
+        revokedAt: null,
+        expiresAt: { gt: new Date() },
+      },
+    })
     if (!session) return res.status(401).json({ code: 'AUTH_SESSION_EXPIRED', message: 'Refresh token expired.' })
-    return res.json({ accessToken: signAccessToken({ sub: session.userId, sid: session.id }) })
+    if (session.prevRefreshTokenHash === presented) {
+      await prisma.userSession.update({ where: { id: session.id }, data: { revokedAt: new Date() } })
+      return res.status(401).json({ code: 'AUTH_SESSION_COMPROMISED', message: 'Refresh token reuse detected; session revoked.' })
+    }
+    const rotated = randomToken()
+    await prisma.userSession.update({
+      where: { id: session.id },
+      data: { prevRefreshTokenHash: session.refreshTokenHash, refreshTokenHash: hashToken(rotated) },
+    })
+    return res.json({ accessToken: signAccessToken({ sub: session.userId, sid: session.id }), refreshToken: rotated })
   } catch (error) {
     return next(error)
   }

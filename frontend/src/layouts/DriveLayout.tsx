@@ -3,9 +3,12 @@ import { Outlet, useOutletContext, NavLink, useLocation, useNavigate, useSearchP
 import {
   Bell,
   Braces,
+  Cloud,
   FileArchive,
   Gauge,
   History,
+  LayoutDashboard,
+  ListChecks,
   LogOut,
   Menu,
   Moon,
@@ -28,15 +31,19 @@ import {
 import { Button } from '@/components/ui/button'
 import { BrandLogo } from '@/components/drive/BrandLogo'
 import { Input } from '@/components/ui/input'
-import { apiFetch, formatBytes } from '@/lib/api'
+import { apiFetch } from '@/lib/api'
+import { formatBytes } from '@/lib/format'
 import { useUpload } from '@/context/UploadContext'
 import { clearAuthSession, getStoredUser, updateStoredUser, type AuthUser } from '@/lib/auth'
 import { getGravatarUrl } from '@/lib/gravatar'
 import { cn } from '@/lib/utils'
 
 const menu = [
+  { label: 'Dashboard', icon: LayoutDashboard, href: '/dashboard' },
   { label: 'All Files', icon: FileArchive, href: '/all-files' },
+  { label: 'Providers', icon: Cloud, href: '/providers' },
   { label: 'Quota Tracker', icon: Gauge, href: '/quota' },
+  { label: 'Jobs', icon: ListChecks, href: '/jobs' },
   { label: 'Shared With Me', icon: Share2, href: '/shared' },
   { label: 'Starred', icon: Star, href: '/starred', disabled: true },
   { label: 'Recycle Bin', icon: Trash2, href: '/trash' },
@@ -261,19 +268,23 @@ export function DriveLayout() {
     setTheme((t) => (t === 'light' ? 'dark' : 'light'))
   }
 
-  async function loadSidebarStats() {
-    await Promise.all([
-      apiFetch<StorageSummary>('/storage/summary').then(setStorage),
-      apiFetch<StorageBreakdown>('/storage/breakdown').then(setBreakdown),
+  async function loadSidebarStats(signal?: AbortSignal) {
+    const [nextStorage, nextBreakdown] = await Promise.all([
+      apiFetch<StorageSummary>('/storage/summary', { signal }),
+      apiFetch<StorageBreakdown>('/storage/breakdown', { signal }),
     ])
+    if (signal?.aborted) return
+    setStorage(nextStorage)
+    setBreakdown(nextBreakdown)
   }
 
-  async function loadConnectedAccounts() {
+  async function loadConnectedAccounts(signal?: AbortSignal) {
     try {
-      const data = await apiFetch<{ accounts: ConnectedAccount[] }>('/connected-accounts')
+      const data = await apiFetch<{ accounts: ConnectedAccount[] }>('/connected-accounts', { signal })
+      if (signal?.aborted) return
       setAccounts(data.accounts)
     } catch (e) {
-      console.error('Failed to load accounts for filter dropdown', e)
+      if (!signal?.aborted) console.error('Failed to load accounts for filter dropdown', e)
     }
   }
 
@@ -332,6 +343,13 @@ export function DriveLayout() {
       nextParams.set('endDate', new Date(filterEndDate).toISOString())
     }
 
+    const providerParam = searchParams.get('provider')
+    if (providerParam) nextParams.set('provider', providerParam)
+    const sortParam = searchParams.get('sort')
+    if (sortParam) nextParams.set('sort', sortParam)
+    const orderParam = searchParams.get('order')
+    if (orderParam) nextParams.set('order', orderParam)
+
     setFiltersOpen(false)
     navigate({ pathname: '/all-files', search: nextParams.toString() })
   }
@@ -352,6 +370,12 @@ export function DriveLayout() {
     }
     const q = searchValue.trim()
     if (q) nextParams.set('q', q)
+    const providerParam = searchParams.get('provider')
+    if (providerParam) nextParams.set('provider', providerParam)
+    const sortParam = searchParams.get('sort')
+    if (sortParam) nextParams.set('sort', sortParam)
+    const orderParam = searchParams.get('order')
+    if (orderParam) nextParams.set('order', orderParam)
 
     navigate({ pathname: '/all-files', search: nextParams.toString() })
   }
@@ -362,16 +386,27 @@ export function DriveLayout() {
   }
 
   useEffect(() => {
-    apiFetch<{ user: AuthUser }>('/auth/me')
+    const controller = new AbortController()
+    const { signal } = controller
+
+    apiFetch<{ user: AuthUser }>('/auth/me', { signal })
       .then((data) => {
+        if (signal.aborted) return
         setUser(data.user)
         updateStoredUser(data.user)
       })
       .catch(() => undefined)
-    loadSidebarStats().catch(() => undefined)
-    loadConnectedAccounts().catch(() => undefined)
-    window.addEventListener('9drive:storage-changed', loadSidebarStats)
-    return () => window.removeEventListener('9drive:storage-changed', loadSidebarStats)
+    loadSidebarStats(signal).catch(() => undefined)
+    loadConnectedAccounts(signal).catch(() => undefined)
+
+    const onStorageChanged = () => {
+      loadSidebarStats(signal).catch(() => undefined)
+    }
+    window.addEventListener('9drive:storage-changed', onStorageChanged)
+    return () => {
+      controller.abort()
+      window.removeEventListener('9drive:storage-changed', onStorageChanged)
+    }
   }, [])
 
   useEffect(() => {

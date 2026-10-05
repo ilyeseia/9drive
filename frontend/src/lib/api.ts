@@ -1,5 +1,8 @@
 import { clearAuthSession, getAccessToken, getRefreshToken, setAccessToken } from '@/lib/auth'
 
+// Legacy re-exports — the implementations live in @/lib/format now.
+export { formatBytes, formatDate } from '@/lib/format'
+
 const isProd = import.meta.env.PROD
 const rawApiUrl = import.meta.env.VITE_API_URL
 export const API_URL = (rawApiUrl && rawApiUrl !== 'http://localhost:4000')
@@ -8,6 +11,18 @@ export const API_URL = (rawApiUrl && rawApiUrl !== 'http://localhost:4000')
 
 
 type ApiOptions = RequestInit & { skipAuth?: boolean; retry?: boolean }
+
+export class ApiError extends Error {
+  status: number
+  code?: string
+
+  constructor(message: string, status: number, code?: string) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+    this.code = code
+  }
+}
 
 async function refreshAccessToken() {
   const refreshToken = getRefreshToken()
@@ -18,8 +33,11 @@ async function refreshAccessToken() {
     body: JSON.stringify({ refreshToken }),
   })
   if (!response.ok) return false
-  const data = await response.json() as { accessToken: string }
+  const data = await response.json() as { accessToken: string; refreshToken?: string }
   setAccessToken(data.accessToken)
+  if (data.refreshToken) {
+    localStorage.setItem('9drive.refreshToken', data.refreshToken)
+  }
   return true
 }
 
@@ -37,22 +55,49 @@ export async function apiFetch<T>(path: string, options: ApiOptions = {}): Promi
   if (!response.ok) {
     const error = await response.json().catch(() => ({ message: response.statusText }))
     if (response.status === 401) clearAuthSession()
-    throw new Error(error.message ?? 'Request failed')
+    throw new ApiError(error.message ?? 'Request failed', response.status, error.code)
   }
 
   return response.json() as Promise<T>
 }
 
-export function formatBytes(input: string | number | bigint | null | undefined) {
-  if (input === null || input === undefined) return '--'
-  const bytes = Number(input)
-  if (!Number.isFinite(bytes)) return '--'
-  if (bytes === 0) return '0 B'
-  const units = ['B', 'KB', 'MB', 'GB', 'TB']
-  const index = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1)
-  return `${(bytes / 1024 ** index).toFixed(index === 0 ? 0 : 2)} ${units[index]}`
+/**
+ * Like apiFetch, but returns `null` when the endpoint does not exist yet (404).
+ * Used by pages that consume endpoints which may not be deployed during a refactor.
+ */
+export async function apiFetchOptional<T>(path: string, options: ApiOptions = {}): Promise<T | null> {
+  try {
+    return await apiFetch<T>(path, options)
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) return null
+    throw error
+  }
 }
 
-export function formatDate(value: string) {
-  return new Intl.DateTimeFormat('en', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
+const DEFAULT_REDIRECT_HOSTS = ['accounts.google.com']
+
+function allowedRedirectHosts(): Set<string> {
+  const raw = import.meta.env.VITE_ALLOWED_REDIRECT_HOSTS
+  const extra = typeof raw === 'string'
+    ? raw.split(/[\s,]+/).map((host) => host.trim().toLowerCase()).filter(Boolean)
+    : []
+  return new Set([...DEFAULT_REDIRECT_HOSTS, ...extra])
+}
+
+/**
+ * Open-redirect guard (security-contract.md §14): a URL returned by the API may
+ * only be navigated to when its host is in the configured allow-list.
+ */
+export function isAllowedRedirectUrl(url: unknown): url is string {
+  if (typeof url !== 'string' || !url) return false
+  let parsed: URL
+  try {
+    parsed = new URL(url, window.location.origin)
+  } catch {
+    return false
+  }
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return false
+  if (parsed.username || parsed.password) return false
+  if (parsed.origin === window.location.origin) return true
+  return allowedRedirectHosts().has(parsed.hostname.toLowerCase())
 }

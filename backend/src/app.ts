@@ -15,11 +15,21 @@ import { apiKeyRouter } from './modules/api-keys/api-key.routes.js'
 import { publicApiRouter } from './modules/public-api/public-api.routes.js'
 import { auditLogRouter } from './modules/audit-logs/audit-log.routes.js'
 import { systemRouter } from './modules/system/system.routes.js'
+import { providerRouter } from './modules/providers/provider.routes.js'
+import { dashboardRouter } from './modules/dashboard/dashboard.routes.js'
+import { jobsRouter } from './modules/jobs/jobs.routes.js'
+import { routingRouter } from './modules/routing/routing.routes.js'
+import { webhookRouter } from './modules/webhooks/webhook.routes.js'
+import { replicationRouter } from './modules/replication/replication.routes.js'
+import { migrationRouter } from './modules/migration/migration.routes.js'
+import { noStoreHeaders, securityStack } from './middleware/security.middleware.js'
 
 export const app = express()
-app.set('trust proxy', true)
+app.set('trust proxy', env.TRUST_PROXY_HOPS)
 
 app.use(cors({ origin: env.FRONTEND_URL }))
+app.use(securityStack)
+app.use(noStoreHeaders)
 app.use(express.json({ limit: '1mb' }))
 
 app.get('/health', (_req, res) => res.json({ status: 'ok' }))
@@ -36,4 +46,11 @@ app.use('/folders', folderRouter)
 app.use('/invites', inviteRouter)
 app.use('/audit-logs', auditLogRouter)
 app.use('/system', systemRouter)
+app.use('/providers', providerRouter)
+app.use('/dashboard', dashboardRouter)
+app.use('/jobs', jobsRouter)
+app.use('/routing', routingRouter)
+app.use('/webhooks', webhookRouter)
+app.use('/replication', replicationRouter)
+app.use('/migration', migrationRouter)
 app.use(errorMiddleware)

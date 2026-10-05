@@ -13,7 +13,8 @@ import {
 } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { PageHeader } from '@/components/drive/PageHeader'
-import { apiFetch, formatDate } from '@/lib/api'
+import { apiFetch } from '@/lib/api'
+import { formatBytes, formatDate } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
 type AuditLog = {
@@ -122,14 +123,6 @@ export function ActivityLogPage() {
     }
 
     return <span className="text-xs text-slate-500 font-mono">{JSON.stringify(parsed)}</span>
-  }
-
-  function formatBytes(bytes: number) {
-    if (bytes === 0) return '0 B'
-    const k = 1024
-    const sizes = ['B', 'KB', 'MB', 'GB', 'TB']
-    const i = Math.floor(Math.log(bytes) / Math.log(k))
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
   }
 
   return (

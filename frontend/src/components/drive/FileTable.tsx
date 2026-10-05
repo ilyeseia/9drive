@@ -4,6 +4,19 @@ import { AvatarStack } from '@/components/drive/AvatarStack'
 import { FileIcon } from '@/components/drive/FileIcon'
 import type { FileItem } from '@/data/drive-data'
 import { apiFetch } from '@/lib/api'
+import { providerLabel } from '@/lib/format'
+import { cn } from '@/lib/utils'
+
+function ProviderBadge({ file }: { file: FileItem }) {
+  const provider = file.provider
+  if (!provider) return <span className="text-xs text-slate-300">—</span>
+  return (
+    <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-bold text-slate-600">
+      <span className={cn('h-1.5 w-1.5 rounded-full', provider === 's3' ? 'bg-amber-500' : 'bg-blue-500')} />
+      {providerLabel(provider)}
+    </span>
+  )
+}
 
 export function FileTable({ files, mode = 'default', selectedFileIds = new Set<string>(), allSelected = false, onFileContextMenu, onToggleFile, onToggleAll }: { files: FileItem[]; mode?: 'default' | 'shared' | 'recent' | 'starred' | 'archived'; selectedFileIds?: Set<string>; allSelected?: boolean; onFileContextMenu?: (event: MouseEvent<HTMLElement>, file: FileItem) => void; onToggleFile?: (file: FileItem) => void; onToggleAll?: () => void }) {
   const [copiedFileId, setCopiedFileId] = useState<string | null>(null)
@@ -32,6 +45,7 @@ export function FileTable({ files, mode = 'default', selectedFileIds = new Set<s
                     <span>{meta}</span>
                     <span>·</span>
                     <span>{file.size}</span>
+                    {file.provider ? <><span>·</span><ProviderBadge file={file} /></> : null}
                     {file.folderName && <><span>·</span><span className="flex items-center gap-0.5 text-blue-500"><FolderOpen className="h-3 w-3" />{file.folderName}</span></>}
                   </div>
                 </div>
@@ -44,7 +58,7 @@ export function FileTable({ files, mode = 'default', selectedFileIds = new Set<s
 
       {/* Desktop table view */}
       <div className="hidden overflow-x-auto sm:block">
-        <table className="w-full min-w-[760px] border-collapse text-left text-sm">
+        <table className="w-full min-w-[860px] border-collapse text-left text-sm">
           <thead>
             <tr className="border-b border-slate-200/20 text-slate-950">
               <th className="w-9 py-2.5"><input type="checkbox" className="h-4 w-4 accent-blue-600" checked={allSelected} onChange={onToggleAll} /></th>
@@ -56,6 +70,7 @@ export function FileTable({ files, mode = 'default', selectedFileIds = new Set<s
               {mode === 'archived' ? <th className="py-2.5 font-extrabold">Archived Date</th> : null}
               {mode === 'archived' ? <th className="py-2.5 font-extrabold">Original Location</th> : <th className="py-2.5 font-extrabold">Last Modified</th>}
               <th className="py-2.5 font-extrabold">Size</th>
+              <th className="py-2.5 font-extrabold">Provider</th>
               <th className="py-2.5 font-extrabold">Access</th>
               <th className="py-2.5" />
             </tr>
@@ -89,6 +104,7 @@ export function FileTable({ files, mode = 'default', selectedFileIds = new Set<s
                 {mode === 'archived' ? <td className="py-2.5 text-slate-500">{file.archivedDate}</td> : null}
                 <td className="py-2.5 text-slate-500">{mode === 'archived' ? file.location : file.date}</td>
                 <td className="py-2.5 text-slate-500">{file.size}</td>
+                <td className="py-2.5 text-slate-500"><ProviderBadge file={file} /></td>
                 <td className="py-2.5 text-slate-500"><span className="flex items-center gap-2"><AvatarStack count={file.shared} />{file.access}</span></td>
                 <td className="py-2.5 text-right">
                   <div className="flex items-center justify-end gap-1.5">

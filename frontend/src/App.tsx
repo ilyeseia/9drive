@@ -3,9 +3,13 @@ import { ProtectedRoute } from '@/components/auth/ProtectedRoute'
 import { DriveLayout } from '@/layouts/DriveLayout'
 import { AllFilesPage } from '@/pages/AllFilesPage'
 import { ArchivedPage } from '@/pages/ArchivedPage'
+import { DashboardPage } from '@/pages/DashboardPage'
 import { LoginPage } from '@/pages/LoginPage'
 import { GoogleAuthPage } from '@/pages/GoogleAuthPage'
 import { GoogleConnectedPage } from '@/pages/GoogleConnectedPage'
+import { JobsPage } from '@/pages/JobsPage'
+import { NotFoundPage } from '@/pages/NotFoundPage'
+import { ProvidersPage } from '@/pages/ProvidersPage'
 import { QuotaTrackerPage } from '@/pages/QuotaTrackerPage'
 import { RecentPage } from '@/pages/RecentPage'
 import { RegisterPage } from '@/pages/RegisterPage'
@@ -31,8 +35,11 @@ function App() {
       <Route path="public/files/:token/embed" element={<PublicFilePage embed />} />
       <Route element={<ProtectedRoute />}>
         <Route element={<DriveLayout />}>
-          <Route index element={<Navigate to="/all-files" replace />} />
+          <Route index element={<Navigate to="/dashboard" replace />} />
+          <Route path="dashboard" element={<DashboardPage />} />
           <Route path="all-files" element={<AllFilesPage />} />
+          <Route path="providers" element={<ProvidersPage />} />
+          <Route path="jobs" element={<JobsPage />} />
           <Route path="quota" element={<QuotaTrackerPage />} />
           <Route path="shared" element={<SharedPage />} />
           <Route path="recent" element={<RecentPage />} />
@@ -42,9 +49,9 @@ function App() {
           <Route path="activity" element={<ActivityLogPage />} />
           <Route path="settings" element={<SettingsPage />} />
           <Route path="api" element={<ApiManagementPage />} />
+          <Route path="*" element={<NotFoundPage />} />
         </Route>
       </Route>
-      <Route path="*" element={<Navigate to="/all-files" replace />} />
       </Routes>
     </UploadProvider>
   )

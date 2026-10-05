@@ -3,7 +3,8 @@ import { RotateCcw, Trash2, ShieldAlert, FileText, CheckCircle2 } from 'lucide-r
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { PageHeader } from '@/components/drive/PageHeader'
-import { apiFetch, formatBytes } from '@/lib/api'
+import { apiFetch } from '@/lib/api'
+import { formatBytes } from '@/lib/format'
 
 type TrashFile = {
   id: string

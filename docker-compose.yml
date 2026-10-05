@@ -1,53 +1,204 @@
+name: 9drive
+
+# ---------------------------------------------------------------------------
+# 9Drive — Multi-Cloud Storage Operating Layer
+#
+# Topology:  frontend -> backend -> { postgres, redis, worker }
+# Only the frontend publishes a port. Postgres/Redis are on an isolated
+# internal network with no egress. Migrations run as a one-shot job.
+#
+# Requires a root `.env` (copy `.env.docker.example`). Secrets have NO
+# insecure fallbacks on purpose: a missing value fails the compose run loudly.
+# ---------------------------------------------------------------------------
+
 services:
-  mysql:
-    image: mysql:8.4
+  postgres:
+    image: postgres:16-alpine
     restart: unless-stopped
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
-      MYSQL_DATABASE: ${MYSQL_DATABASE:-9drive}
-      MYSQL_USER: ${MYSQL_USER:-9drive}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-change-this-database-password}
+      POSTGRES_DB: ${POSTGRES_DB:-9drive}
+      POSTGRES_USER: ${POSTGRES_USER:-9drive}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required - copy .env.docker.example to .env and set it}
     volumes:
-      - mysql_data:/var/lib/mysql
+      - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD:-root}"]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
       retries: 20
+    networks:
+      - internal
+    logging: &default-logging
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:?REDIS_PASSWORD is required - copy .env.docker.example to .env and set it}"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$${REDIS_PASSWORD}\" ping | grep -q PONG"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks:
+      - internal
+    logging: *default-logging
+
+  migrate:
+    build:
+      context: ./backend
+    restart: "no"
+    command: ["sh", "-c", "npx prisma migrate deploy && node dist/scripts/seed-google-config-if-present.js"]
+    environment: &backend-env
+      DATABASE_URL: postgresql://${POSTGRES_USER:-9drive}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-9drive}?schema=public
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      APP_PORT: 4000
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:5173}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5173}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?JWT_ACCESS_SECRET is required - copy .env.docker.example to .env and set it}
+      TOKEN_ENCRYPTION_KEY: ${TOKEN_ENCRYPTION_KEY:?TOKEN_ENCRYPTION_KEY is required - must be >= 32 chars}
+      ACCESS_TOKEN_TTL_SECONDS: ${ACCESS_TOKEN_TTL_SECONDS:-900}
+      REFRESH_TOKEN_TTL_DAYS: ${REFRESH_TOKEN_TTL_DAYS:-14}
+      MAX_UPLOAD_BYTES: ${MAX_UPLOAD_BYTES:-1073741824}
+      UPLOAD_SPOOL_DIR: /var/lib/9drive-spool
+      UPLOAD_SPOOL_MAX_BYTES: ${UPLOAD_SPOOL_MAX_BYTES:-53687091200}
+      INLINE_UPLOAD_MAX_BYTES: ${INLINE_UPLOAD_MAX_BYTES:-8388608}
+      TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-1}
+      RECAPTCHA_SECRET_KEY: ${RECAPTCHA_SECRET_KEY:-}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-}
+      ALLOW_INSECURE_ENDPOINTS: ${ALLOW_INSECURE_ENDPOINTS:-false}
+      SSRF_ALLOWLIST: ${SSRF_ALLOWLIST:-}
+      WORKER_ENABLED: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - internal
+    logging: *default-logging
 
   backend:
     build:
       context: ./backend
     restart: unless-stopped
-    depends_on:
-      mysql:
-        condition: service_healthy
+    command: ["node", "dist/server.js"]
     environment:
-      DATABASE_URL: mysql://${MYSQL_USER:-9drive}:${MYSQL_PASSWORD:-change-this-database-password}@mysql:3306/${MYSQL_DATABASE:-9drive}
-      APP_PORT: 4000
-      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5173}
-      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-change-this-jwt-secret-at-least-32-chars}
-      TOKEN_ENCRYPTION_KEY: ${TOKEN_ENCRYPTION_KEY:-change-this-encryption-key-32bytes!}
-      ACCESS_TOKEN_TTL_SECONDS: ${ACCESS_TOKEN_TTL_SECONDS:-3600}
-      REFRESH_TOKEN_TTL_DAYS: ${REFRESH_TOKEN_TTL_DAYS:-30}
-      MAX_UPLOAD_BYTES: 5368709120
-      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
-      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
-      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-http://localhost:4000/connected-accounts/google/callback}
-    ports:
-      - "4000:4000"
+      <<: *backend-env
+      WORKER_ENABLED: ${WORKER_ENABLED:-false}
+    volumes:
+      - spool_data:/var/lib/9drive-spool
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    expose:
+      - "4000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:4000/health/ready >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - public
+      - internal
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    logging: *default-logging
+
+  worker:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    command: ["node", "dist/worker.js"]
+    environment:
+      <<: *backend-env
+      WORKER_ENABLED: "true"
+      WORKER_CONCURRENCY_TRANSFER: ${WORKER_CONCURRENCY_TRANSFER:-2}
+      WORKER_CONCURRENCY_SYNC: ${WORKER_CONCURRENCY_SYNC:-2}
+      WORKER_CONCURRENCY_MAINTENANCE: ${WORKER_CONCURRENCY_MAINTENANCE:-1}
+      WORKER_CONCURRENCY_REPLICATION: ${WORKER_CONCURRENCY_REPLICATION:-1}
+      WORKER_CONCURRENCY_MIGRATION: ${WORKER_CONCURRENCY_MIGRATION:-1}
+      WORKER_CONCURRENCY_WEBHOOK: ${WORKER_CONCURRENCY_WEBHOOK:-2}
+      WORKER_CONCURRENCY_RETRY: ${WORKER_CONCURRENCY_RETRY:-1}
+      WORKER_HEALTH_PORT: 4001
+    volumes:
+      - spool_data:/var/lib/9drive-spool
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    expose:
+      - "4001"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:4001/health >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - internal
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    logging: *default-logging
 
   frontend:
     build:
       context: ./frontend
       args:
-        VITE_API_URL: ${VITE_API_URL:-http://localhost:4000}
+        # Empty VITE_API_URL => the SPA calls same-origin `/api/*`, which nginx
+        # proxies to the backend. This is what makes the app work behind a
+        # single published port (and behind Tailscale).
+        VITE_API_URL: ${VITE_API_URL:-}
         VITE_RECAPTCHA_SITE_KEY: ${VITE_RECAPTCHA_SITE_KEY:-}
+        VITE_ALLOWED_REDIRECT_HOSTS: ${VITE_ALLOWED_REDIRECT_HOSTS:-accounts.google.com}
+        VITE_ENABLE_OFFICE_PREVIEW: ${VITE_ENABLE_OFFICE_PREVIEW:-false}
     restart: unless-stopped
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     ports:
-      - "5173:80"
+      - "${FRONTEND_PORT_BIND:-5173}:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/ >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    networks:
+      - public
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    logging: *default-logging
+
+networks:
+  public:
+    driver: bridge
+  internal:
+    driver: bridge
+    internal: true   # no egress: postgres + redis cannot reach the internet
 
 volumes:
-  mysql_data:
+  postgres_data:
+  redis_data:
+  spool_data:

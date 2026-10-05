@@ -1,6 +1,6 @@
 import { CalendarClock, Database, Folder, HardDrive, Mail, Tag, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { formatBytes, formatDate } from '@/lib/api'
+import { formatBytes, formatDate } from '@/lib/format'
 import type { FileItem } from '@/data/drive-data'
 
 function DetailRow({ icon: Icon, label, value }: { icon: typeof Tag; label: string; value: string }) {

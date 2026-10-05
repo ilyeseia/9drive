@@ -3,6 +3,7 @@ import type { MouseEvent } from 'react'
 import { Card } from '@/components/ui/card'
 import { FileIcon } from '@/components/drive/FileIcon'
 import type { FileItem } from '@/data/drive-data'
+import { providerLabel } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
 export type FileSizeScale = 'xs' | 'sm' | 'md' | 'lg'
@@ -122,6 +123,7 @@ export function FileGrid({
               <p className={cfg.date}>{file.date}</p>
               <div className={cn("flex flex-wrap justify-center font-semibold text-slate-600", cfg.tagsShell)}>
                 <span className={cn("rounded-full bg-slate-100", cfg.tag)}>{file.size}</span>
+                {file.provider ? <span className={cn("max-w-full truncate rounded-full bg-slate-100", cfg.tag)}>{providerLabel(file.provider)}</span> : null}
                 <span className={cn("max-w-full truncate rounded-full bg-slate-100", cfg.tag)}>{file.access}</span>
               </div>
             </div>

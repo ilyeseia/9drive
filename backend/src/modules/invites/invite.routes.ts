@@ -2,6 +2,7 @@ import { Router } from 'express'
 import { z } from 'zod'
 import { prisma } from '../../config/prisma.js'
 import { requireAuth, type AuthRequest } from '../../middleware/auth.middleware.js'
+import { inviteLimiter } from '../../middleware/security.middleware.js'
 
 export const inviteRouter = Router()
 inviteRouter.use(requireAuth)
@@ -49,18 +50,17 @@ function serializeInvite(invite: InviteRecord, target: TargetRecord | null, user
 inviteRouter.get('/', async (req: AuthRequest, res, next) => {
   try {
     const me = await prisma.user.findUniqueOrThrow({ where: { id: req.user!.id }, select: { email: true } })
+    const myEmail = me.email.trim().toLowerCase()
     const [sent, received] = await Promise.all([
       prisma.workspaceInvite.findMany({ where: { inviterId: req.user!.id, revokedAt: null, targetId: { not: '' } }, orderBy: { createdAt: 'desc' } }),
-      prisma.workspaceInvite.findMany({ where: { inviteeEmail: me.email, revokedAt: null, targetId: { not: '' } }, orderBy: { createdAt: 'desc' } }),
+      prisma.workspaceInvite.findMany({ where: { inviteeEmail: { equals: myEmail, mode: 'insensitive' }, revokedAt: null, targetId: { not: '' } }, orderBy: { createdAt: 'desc' } }),
     ])
     const allInvites = [...sent, ...received]
     const emails = [...new Set(sent.map((invite) => invite.inviteeEmail))]
-    const users = await prisma.user.findMany({ where: { email: { in: emails } }, select: { id: true, name: true, email: true } })
-    const userByEmail = new Map(users.map((user) => [user.email, user]))
-    const acceptedInvites = sent.filter((invite) => invite.status === 'pending' && userByEmail.has(invite.inviteeEmail))
-    if (acceptedInvites.length > 0) await prisma.workspaceInvite.updateMany({ where: { id: { in: acceptedInvites.map((invite) => invite.id) } }, data: { status: 'accepted', acceptedAt: new Date() } })
+    const users = await prisma.user.findMany({ where: { email: { in: emails, mode: 'insensitive' } }, select: { id: true, name: true, email: true } })
+    const userByEmail = new Map(users.map((user) => [user.email.trim().toLowerCase(), user]))
     const targetByKey = await resolveTargets(allInvites)
-    const sentInvites = sent.map((invite) => serializeInvite({ ...invite, status: userByEmail.has(invite.inviteeEmail) ? 'accepted' : invite.status, acceptedAt: userByEmail.has(invite.inviteeEmail) ? invite.acceptedAt ?? new Date() : invite.acceptedAt }, targetByKey.get(`${invite.targetType}:${invite.targetId}`) ?? null, userByEmail.get(invite.inviteeEmail)))
+    const sentInvites = sent.map((invite) => serializeInvite(invite, targetByKey.get(`${invite.targetType}:${invite.targetId}`) ?? null, userByEmail.get(invite.inviteeEmail)))
     const receivedInvites = received.map((invite) => serializeInvite(invite, targetByKey.get(`${invite.targetType}:${invite.targetId}`) ?? null))
     return res.json({ sent: sentInvites, received: receivedInvites, invites: sentInvites })
   } catch (error) {
@@ -68,21 +68,38 @@ inviteRouter.get('/', async (req: AuthRequest, res, next) => {
   }
 })
 
-inviteRouter.post('/', async (req: AuthRequest, res, next) => {
+inviteRouter.post('/', inviteLimiter, async (req: AuthRequest, res, next) => {
   try {
     const body = inviteSchema.parse(req.body)
     const email = body.email.trim().toLowerCase()
     const inviter = await prisma.user.findUniqueOrThrow({ where: { id: req.user!.id }, select: { email: true } })
-    if (email === inviter.email) return res.status(400).json({ code: 'INVITE_SELF_NOT_ALLOWED', message: 'You cannot invite yourself.' })
+    if (email === inviter.email.trim().toLowerCase()) return res.status(400).json({ code: 'INVITE_SELF_NOT_ALLOWED', message: 'You cannot invite yourself.' })
     await assertTargetOwner(req.user!.id, body.targetType, body.targetId)
-    const existingUser = await prisma.user.findUnique({ where: { email }, select: { id: true, name: true, email: true } })
+    const existingUser = await prisma.user.findFirst({ where: { email: { equals: email, mode: 'insensitive' } }, select: { id: true, name: true, email: true } })
     const invite = await prisma.workspaceInvite.upsert({
       where: { inviterId_inviteeEmail_targetType_targetId: { inviterId: req.user!.id, inviteeEmail: email, targetType: body.targetType, targetId: body.targetId } },
-      create: { inviterId: req.user!.id, inviteeEmail: email, role: body.role, targetType: body.targetType, targetId: body.targetId, status: existingUser ? 'accepted' : 'pending', acceptedAt: existingUser ? new Date() : null },
-      update: { role: body.role, status: existingUser ? 'accepted' : 'pending', acceptedAt: existingUser ? new Date() : null, revokedAt: null },
+      create: { inviterId: req.user!.id, inviteeEmail: email, role: body.role, targetType: body.targetType, targetId: body.targetId, status: 'pending', acceptedAt: null },
+      update: { role: body.role, revokedAt: null },
     })
-    const targetByKey = await resolveTargets([invite])
-    return res.status(201).json({ invite: serializeInvite(invite, targetByKey.get(`${invite.targetType}:${invite.targetId}`) ?? null, existingUser) })
+    const stored = invite.status === 'revoked' ? await prisma.workspaceInvite.update({ where: { id: invite.id }, data: { status: 'pending', revokedAt: null } }) : invite
+    const targetByKey = await resolveTargets([stored])
+    return res.status(201).json({ invite: serializeInvite(stored, targetByKey.get(`${stored.targetType}:${stored.targetId}`) ?? null, existingUser) })
+  } catch (error) {
+    return next(error)
+  }
+})
+
+inviteRouter.post('/:id/accept', inviteLimiter, async (req: AuthRequest, res, next) => {
+  try {
+    const me = await prisma.user.findUniqueOrThrow({ where: { id: req.user!.id }, select: { email: true } })
+    const myEmail = me.email.trim().toLowerCase()
+    const invite = await prisma.workspaceInvite.findFirst({
+      where: { id: String(req.params.id), revokedAt: null, inviteeEmail: { equals: myEmail, mode: 'insensitive' } },
+    })
+    if (!invite) return res.status(404).json({ code: 'INVITE_NOT_FOUND', message: 'Invite not found.' })
+    const accepted = invite.status === 'accepted' ? invite : await prisma.workspaceInvite.update({ where: { id: invite.id }, data: { status: 'accepted', acceptedAt: invite.acceptedAt ?? new Date() } })
+    const targetByKey = await resolveTargets([accepted])
+    return res.json({ invite: serializeInvite(accepted, targetByKey.get(`${accepted.targetType}:${accepted.targetId}`) ?? null) })
   } catch (error) {
     return next(error)
   }

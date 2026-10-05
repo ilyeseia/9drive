@@ -24,7 +24,12 @@ export function getPreviewKind(mimeType: string | undefined): PreviewKind | null
   return null
 }
 
-export function officeViewerUrl(fileUrl: string) {
+export function isOfficePreviewEnabled() {
+  return import.meta.env.VITE_ENABLE_OFFICE_PREVIEW === 'true'
+}
+
+export function officeViewerUrl(fileUrl: string): string | null {
+  if (!isOfficePreviewEnabled()) return null
   return `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(fileUrl)}`
 }
 

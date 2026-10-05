@@ -17,6 +17,9 @@ export type FileItem = {
   sizeBytes?: string
   access: string
   accountEmail?: string
+  /** Raw provider id (e.g. `google_drive`, `s3`) — never a display label. */
+  provider?: string
+  /** Human-readable provider label (e.g. `Google Drive`). */
   accountProvider?: string
   createdAt?: string
   kind: 'doc' | 'image' | 'video' | 'pdf'

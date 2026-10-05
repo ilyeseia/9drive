@@ -1,45 +1,46 @@
-// Generates a fun, unique avatar URL for a user based on their email.
-// Uses DiceBear "bottts" style (cute robots) as the default when no Gravatar is set.
-// Falls back to a random avatar when no email is provided.
-export async function getGravatarUrl(email: string | undefined, size: number) {
-  const normalized = email?.trim().toLowerCase()
+// Local, privacy-friendly avatar: renders initials as an inline SVG data URL.
+// No network request is made (works offline / on Tailscale), and the exported
+// signature is unchanged so existing callers do not need edits.
+const PALETTE = [
+  '#2563eb', // blue
+  '#4f46e5', // indigo
+  '#0891b2', // cyan
+  '#059669', // emerald
+  '#d97706', // amber
+  '#db2777', // pink
+  '#7c3aed', // violet
+  '#dc2626', // red
+]
 
-  // Hash the email for Gravatar lookup + as DiceBear seed
-  const seed = normalized ?? 'default-user'
-  let hash = ''
-
-  if (typeof crypto !== 'undefined' && crypto.subtle) {
-    try {
-      const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(seed))
-      hash = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('')
-    } catch {
-      hash = simpleHash(seed)
-    }
-  } else {
-    hash = simpleHash(seed)
-  }
-
-  // Try Gravatar first; fallback to DiceBear bottts (cute robots)
-  // d=404 means Gravatar returns 404 if no image → we catch and fall through to DiceBear
-  if (normalized && hash.length === 64) {
-    const gravatarUrl = `https://www.gravatar.com/avatar/${hash}?s=${size}&d=404`
-    try {
-      const res = await fetch(gravatarUrl, { method: 'HEAD' })
-      if (res.ok) return gravatarUrl
-    } catch {
-      // Network error → fall through
-    }
-  }
-
-  // DiceBear bottts — cute, colorful robot avatars
-  return `https://api.dicebear.com/8.x/bottts/svg?seed=${encodeURIComponent(hash)}&size=${size}&backgroundColor=b6e3f4,c0aede,d1f4cc,ffdfbf,ffd5dc`
-}
-
-function simpleHash(str: string): string {
+function hashString(input: string): number {
   let hash = 0
-  for (let i = 0; i < str.length; i++) {
-    hash = (hash << 5) - hash + str.charCodeAt(i)
+  for (let i = 0; i < input.length; i++) {
+    hash = (hash << 5) - hash + input.charCodeAt(i)
     hash |= 0 // Convert to 32bit integer
   }
-  return Math.abs(hash).toString(36)
+  return Math.abs(hash)
+}
+
+function initialsFor(email: string): string {
+  const local = email.split('@')[0] ?? ''
+  const parts = local.split(/[^a-zA-Z0-9]+/).filter(Boolean)
+  if (parts.length === 0) return 'U'
+  if (parts.length === 1) return (parts[0].slice(0, 1) || 'U').toUpperCase()
+  return ((parts[0].slice(0, 1) || '') + (parts[1].slice(0, 1) || '')).toUpperCase()
+}
+
+export async function getGravatarUrl(email: string | undefined, size: number) {
+  const normalized = email?.trim().toLowerCase() ?? ''
+  const initials = initialsFor(normalized)
+  const background = PALETTE[hashString(normalized || 'default-user') % PALETTE.length]
+  const fontSize = Math.round(size * 0.42)
+
+  const svg = [
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">`,
+    `<rect width="${size}" height="${size}" rx="${Math.round(size * 0.5)}" fill="${background}"/>`,
+    `<text x="50%" y="50%" dy="0.35em" text-anchor="middle" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="${fontSize}" font-weight="700" fill="#ffffff">${initials}</text>`,
+    `</svg>`,
+  ].join('')
+
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`
 }

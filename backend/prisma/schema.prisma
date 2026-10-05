@@ -3,15 +3,16 @@ generator client {
 }
 
 datasource db {
-  provider = "mysql"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
 model User {
-  id             String             @id @default(uuid()) @db.Char(36)
+  id             String             @id @default(uuid()) @db.Uuid
   name           String             @db.VarChar(191)
   email          String             @unique @db.VarChar(191)
   passwordHash   String             @map("password_hash") @db.VarChar(255)
+  role           String             @default("user") @db.VarChar(32)
   status         String             @default("active") @db.VarChar(32)
   createdAt      DateTime           @default(now()) @map("created_at")
   updatedAt      DateTime           @updatedAt @map("updated_at")
@@ -29,14 +30,14 @@ model User {
   auditLogs      AuditLog[]
   workspaceInvitesSent WorkspaceInvite[] @relation("WorkspaceInvitesSent")
   uploadRoutingPolicy UploadRoutingPolicy?
-  apiKeys       ApiKey[]
+  apiKeys        ApiKey[]
 
   @@map("users")
 }
 
 model ApiKey {
-  id         String    @id @default(uuid()) @db.Char(36)
-  userId     String    @map("user_id") @db.Char(36)
+  id         String    @id @default(uuid()) @db.Uuid
+  userId     String    @map("user_id") @db.Uuid
   name       String    @db.VarChar(191)
   keyPrefix  String    @map("key_prefix") @db.VarChar(32)
   keyHash    String    @unique @map("key_hash") @db.VarChar(255)
@@ -55,11 +56,14 @@ model ApiKey {
 }
 
 model UploadRoutingPolicy {
-  id                 String   @id @default(uuid()) @db.Char(36)
-  userId             String   @unique @map("user_id") @db.Char(36)
+  id                 String   @id @default(uuid()) @db.Uuid
+  userId             String   @unique @map("user_id") @db.Uuid
   mode               String   @default("most_available") @db.VarChar(32)
   priorityAccountIds Json     @map("priority_account_ids")
   roundRobinCursor   Int      @default(0) @map("round_robin_cursor")
+  fileTypeRules      Json?    @map("file_type_rules")
+  minFileSizeBytes   BigInt?  @map("min_file_size_bytes")
+  maxFileSizeBytes   BigInt?  @map("max_file_size_bytes")
   createdAt          DateTime @default(now()) @map("created_at")
   updatedAt          DateTime @updatedAt @map("updated_at")
   user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -68,16 +72,17 @@ model UploadRoutingPolicy {
 }
 
 model UserSession {
-  id               String    @id @default(uuid()) @db.Char(36)
-  userId           String    @map("user_id") @db.Char(36)
-  refreshTokenHash String    @map("refresh_token_hash") @db.VarChar(255)
-  userAgent        String?   @map("user_agent") @db.Text
-  ipAddress        String?   @map("ip_address") @db.VarChar(64)
-  expiresAt        DateTime  @map("expires_at")
-  revokedAt        DateTime? @map("revoked_at")
-  createdAt        DateTime  @default(now()) @map("created_at")
-  updatedAt        DateTime  @updatedAt @map("updated_at")
-  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id                 String    @id @default(uuid()) @db.Uuid
+  userId             String    @map("user_id") @db.Uuid
+  refreshTokenHash   String    @map("refresh_token_hash") @db.VarChar(255)
+  prevRefreshTokenHash String? @unique @map("prev_refresh_token_hash") @db.VarChar(255)
+  userAgent          String?   @map("user_agent") @db.Text
+  ipAddress          String?   @map("ip_address") @db.VarChar(64)
+  expiresAt          DateTime  @map("expires_at")
+  revokedAt          DateTime? @map("revoked_at")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+  user               User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([refreshTokenHash])
@@ -85,8 +90,8 @@ model UserSession {
 }
 
 model AuthHandoff {
-  id        String    @id @default(uuid()) @db.Char(36)
-  userId    String    @map("user_id") @db.Char(36)
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
   tokenHash String    @unique @map("token_hash") @db.VarChar(255)
   expiresAt DateTime  @map("expires_at")
   usedAt    DateTime? @map("used_at")
@@ -98,8 +103,8 @@ model AuthHandoff {
 }
 
 model ProviderConfig {
-  id                    String             @id @default(uuid()) @db.Char(36)
-  userId                String?            @map("user_id") @db.Char(36)
+  id                    String             @id @default(uuid()) @db.Uuid
+  userId                String?            @map("user_id") @db.Uuid
   provider              String             @db.VarChar(32)
   clientIdEncrypted     String             @map("client_id_encrypted") @db.Text
   clientSecretEncrypted String             @map("client_secret_encrypted") @db.Text
@@ -118,9 +123,9 @@ model ProviderConfig {
 }
 
 model OauthState {
-  id               String         @id @default(uuid()) @db.Char(36)
-  userId           String?        @map("user_id") @db.Char(36)
-  providerConfigId String         @map("provider_config_id") @db.Char(36)
+  id               String         @id @default(uuid()) @db.Uuid
+  userId           String?        @map("user_id") @db.Uuid
+  providerConfigId String         @map("provider_config_id") @db.Uuid
   flow             String         @default("connect") @db.VarChar(32)
   stateHash        String         @unique @map("state_hash") @db.VarChar(255)
   expiresAt        DateTime       @map("expires_at")
@@ -134,9 +139,9 @@ model OauthState {
 }
 
 model ConnectedAccount {
-  id                    String          @id @default(uuid()) @db.Char(36)
-  userId                String          @map("user_id") @db.Char(36)
-  providerConfigId      String?         @map("provider_config_id") @db.Char(36)
+  id                    String          @id @default(uuid()) @db.Uuid
+  userId                String          @map("user_id") @db.Uuid
+  providerConfigId      String?         @map("provider_config_id") @db.Uuid
   provider              String          @db.VarChar(32)
   providerAccountId     String          @map("provider_account_id") @db.VarChar(191)
   email                 String          @db.VarChar(191)
@@ -146,6 +151,7 @@ model ConnectedAccount {
   refreshTokenEncrypted String?         @map("refresh_token_encrypted") @db.Text
   tokenExpiresAt        DateTime?       @map("token_expires_at")
   scopes                Json
+  metadata              Json?
   status                String          @default("connected") @db.VarChar(32)
   lastError             String?         @map("last_error") @db.Text
   createdAt             DateTime        @default(now()) @map("created_at")
@@ -165,9 +171,9 @@ model ConnectedAccount {
 }
 
 model S3StorageConfig {
-  id                       String           @id @default(uuid()) @db.Char(36)
-  userId                   String           @map("user_id") @db.Char(36)
-  connectedAccountId       String           @unique @map("connected_account_id") @db.Char(36)
+  id                       String           @id @default(uuid()) @db.Uuid
+  userId                   String           @map("user_id") @db.Uuid
+  connectedAccountId       String           @unique @map("connected_account_id") @db.Uuid
   name                     String           @db.VarChar(191)
   bucket                   String           @db.VarChar(191)
   region                   String           @db.VarChar(191)
@@ -189,8 +195,8 @@ model S3StorageConfig {
 }
 
 model StorageAccount {
-  id                 String           @id @default(uuid()) @db.Char(36)
-  connectedAccountId String           @unique @map("connected_account_id") @db.Char(36)
+  id                 String           @id @default(uuid()) @db.Uuid
+  connectedAccountId String           @unique @map("connected_account_id") @db.Uuid
   totalBytes         BigInt?          @map("total_bytes")
   usedBytes          BigInt           @default(0) @map("used_bytes")
   availableBytes     BigInt?          @map("available_bytes")
@@ -204,17 +210,20 @@ model StorageAccount {
 }
 
 model File {
-  id                 String           @id @default(uuid()) @db.Char(36)
-  userId             String           @map("user_id") @db.Char(36)
-  connectedAccountId String           @map("connected_account_id") @db.Char(36)
-  folderId           String?          @map("folder_id") @db.Char(36)
+  id                 String           @id @default(uuid()) @db.Uuid
+  userId             String           @map("user_id") @db.Uuid
+  connectedAccountId String           @map("connected_account_id") @db.Uuid
+  folderId           String?          @map("folder_id") @db.Uuid
   provider           String           @db.VarChar(32)
   providerFileId     String           @map("provider_file_id") @db.VarChar(191)
   name               String           @db.VarChar(255)
   mimeType           String           @map("mime_type") @db.VarChar(191)
+  sniffedMimeType    String?          @map("sniffed_mime_type") @db.VarChar(191)
   sizeBytes          BigInt           @map("size_bytes")
   checksum           String?          @db.VarChar(191)
   status             String           @default("active") @db.VarChar(32)
+  remoteParentId     String?          @map("remote_parent_id") @db.VarChar(255)
+  replicatedFromId   String?          @map("replicated_from_id") @db.Uuid
   createdAt          DateTime         @default(now()) @map("created_at")
   updatedAt          DateTime         @updatedAt @map("updated_at")
   deletedAt          DateTime?        @map("deleted_at")
@@ -234,13 +243,12 @@ model File {
 }
 
 model FileShare {
-  id        String    @id @default(uuid()) @db.Char(36)
-  fileId    String    @map("file_id") @db.Char(36)
-  userId    String    @map("user_id") @db.Char(36)
-  token     String?   @unique @db.VarChar(191)
+  id        String    @id @default(uuid()) @db.Uuid
+  fileId    String    @map("file_id") @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
   tokenHash String    @unique @map("token_hash") @db.VarChar(255)
   enabled   Boolean   @default(true)
-  expiresAt DateTime? @map("expires_at")
+  expiresAt DateTime  @map("expires_at")
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
   file      File      @relation(fields: [fileId], references: [id], onDelete: Cascade)
@@ -254,9 +262,9 @@ model FileShare {
 }
 
 model FilePreviewToken {
-  id        String   @id @default(uuid()) @db.Char(36)
-  fileId    String   @map("file_id") @db.Char(36)
-  userId    String   @map("user_id") @db.Char(36)
+  id        String   @id @default(uuid()) @db.Uuid
+  fileId    String   @map("file_id") @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
   tokenHash String   @unique @map("token_hash") @db.VarChar(255)
   expiresAt DateTime @map("expires_at")
   createdAt DateTime @default(now()) @map("created_at")
@@ -269,11 +277,11 @@ model FilePreviewToken {
 }
 
 model Folder {
-  id                 String            @id @default(uuid()) @db.Char(36)
-  userId             String            @map("user_id") @db.Char(36)
-  parentId           String?           @map("parent_id") @db.Char(36)
-  connectedAccountId String?           @map("connected_account_id") @db.Char(36)
-  provider           String            @default("google_drive") @db.VarChar(32)
+  id                 String            @id @default(uuid()) @db.Uuid
+  userId             String            @map("user_id") @db.Uuid
+  parentId           String?           @map("parent_id") @db.Uuid
+  connectedAccountId String?           @map("connected_account_id") @db.Uuid
+  provider           String            @default("") @db.VarChar(32)
   providerFolderId   String?           @map("provider_folder_id") @db.VarChar(191)
   name               String            @db.VarChar(255)
   color              String            @default("text-blue-500") @db.VarChar(64)
@@ -297,10 +305,10 @@ model Folder {
 }
 
 model UploadSession {
-  id                       String            @id @default(uuid()) @db.Char(36)
-  userId                   String            @map("user_id") @db.Char(36)
-  targetConnectedAccountId String?           @map("target_connected_account_id") @db.Char(36)
-  folderId                 String?           @map("folder_id") @db.Char(36)
+  id                       String            @id @default(uuid()) @db.Uuid
+  userId                   String            @map("user_id") @db.Uuid
+  targetConnectedAccountId String?           @map("target_connected_account_id") @db.Uuid
+  folderId                 String?           @map("folder_id") @db.Uuid
   fileName                 String            @map("file_name") @db.VarChar(255)
   mimeType                 String            @map("mime_type") @db.VarChar(191)
   sizeBytes                BigInt            @map("size_bytes")
@@ -319,11 +327,11 @@ model UploadSession {
 }
 
 model AuditLog {
-  id         String   @id @default(uuid()) @db.Char(36)
-  userId     String?  @map("user_id") @db.Char(36)
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String?  @map("user_id") @db.Uuid
   action     String   @db.VarChar(191)
   entityType String   @map("entity_type") @db.VarChar(191)
-  entityId   String?  @map("entity_id") @db.Char(36)
+  entityId   String?  @map("entity_id") @db.Uuid
   metadata   Json?
   createdAt  DateTime @default(now()) @map("created_at")
   user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
@@ -333,11 +341,11 @@ model AuditLog {
 }
 
 model WorkspaceInvite {
-  id           String    @id @default(uuid()) @db.Char(36)
-  inviterId    String    @map("inviter_id") @db.Char(36)
+  id           String    @id @default(uuid()) @db.Uuid
+  inviterId    String    @map("inviter_id") @db.Uuid
   inviteeEmail String    @map("invitee_email") @db.VarChar(191)
   targetType   String    @default("file") @map("target_type") @db.VarChar(32)
-  targetId     String    @default("") @map("target_id") @db.Char(36)
+  targetId     String    @default("") @map("target_id") @db.Text
   role         String    @default("viewer") @db.VarChar(32)
   status       String    @default("pending") @db.VarChar(32)
   revokedAt    DateTime? @map("revoked_at")
@@ -350,4 +358,151 @@ model WorkspaceInvite {
   @@index([inviteeEmail])
   @@index([targetType, targetId])
   @@map("workspace_invites")
+}
+
+model ProviderCapability {
+  id         String   @id @default(uuid()) @db.Uuid
+  provider   String   @db.VarChar(32)
+  capability String   @db.VarChar(32)
+  supported  Boolean  @default(true)
+  notes      String?  @db.Text
+  createdAt  DateTime @default(now())
+
+  @@unique([provider, capability])
+  @@index([provider])
+  @@map("provider_capabilities")
+}
+
+model ProviderHealth {
+  id                 String    @id @default(uuid()) @db.Uuid
+  connectedAccountId String?   @unique @map("connected_account_id") @db.Uuid
+  provider           String    @db.VarChar(32)
+  state              String    @default("unknown") @db.VarChar(32)
+  latencyMs          Int?
+  message            String?   @db.Text
+  checkedAt          DateTime  @default(now())
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@index([provider, state])
+  @@index([checkedAt])
+  @@map("provider_health")
+}
+
+model Job {
+  id          String    @id @default(uuid()) @db.Uuid
+  userId      String?   @map("user_id") @db.Uuid
+  type        String    @db.VarChar(64)
+  status      String    @default("queued") @db.VarChar(32)
+  priority    Int       @default(0)
+  attempts    Int       @default(0)
+  maxAttempts Int       @default(5)
+  progress    Int       @default(0)
+  payload     Json
+  result      Json?
+  error       String?   @db.Text
+  provider    String?   @db.VarChar(32)
+  relatedId   String?   @map("related_id") @db.Uuid
+  bullJobId   String?   @unique @map("bull_job_id") @db.VarChar(64)
+  startedAt   DateTime?
+  finishedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([userId, type, status, createdAt])
+  @@index([status, createdAt])
+  @@index([type, createdAt])
+  @@map("jobs")
+}
+
+model ReplicationJob {
+  id              String   @id @default(uuid()) @db.Uuid
+  userId          String   @map("user_id") @db.Uuid
+  sourceAccountId String   @map("source_account_id") @db.Uuid
+  targetAccountId String   @map("target_account_id") @db.Uuid
+  scope           Json
+  status          String   @default("pending") @db.VarChar(32)
+  filesTotal      Int      @default(0)
+  filesCopied     Int      @default(0)
+  filesFailed     Int      @default(0)
+  bytesCopied     BigInt   @default(0)
+  error           String?  @db.Text
+  startedAt       DateTime?
+  finishedAt      DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([userId, status, createdAt])
+  @@map("replication_jobs")
+}
+
+model MigrationJob {
+  id              String   @id @default(uuid()) @db.Uuid
+  userId          String   @map("user_id") @db.Uuid
+  sourceAccountId String   @map("source_account_id") @db.Uuid
+  targetAccountId String   @map("target_account_id") @db.Uuid
+  status          String   @default("pending") @db.VarChar(32)
+  mode            String   @default("copy") @db.VarChar(16)
+  filesTotal      Int      @default(0)
+  filesDone       Int      @default(0)
+  filesFailed     Int      @default(0)
+  bytesMoved      BigInt   @default(0)
+  error           String?  @db.Text
+  startedAt       DateTime?
+  finishedAt      DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([userId, status, createdAt])
+  @@map("migration_jobs")
+}
+
+model StorageOperation {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String?  @map("user_id") @db.Uuid
+  accountId String?  @map("account_id") @db.Uuid
+  provider  String?  @db.VarChar(32)
+  operation String   @db.VarChar(64)
+  fileId    String?  @map("file_id") @db.Uuid
+  status    String   @db.VarChar(16)
+  latencyMs Int?
+  bytes     BigInt?
+  errorCode String?  @map("error_code") @db.VarChar(64)
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([accountId, createdAt])
+  @@index([operation, status, createdAt])
+  @@map("storage_operations")
+}
+
+model WebhookSubscription {
+  id              String   @id @default(uuid()) @db.Uuid
+  userId          String   @map("user_id") @db.Uuid
+  url             String   @db.Text
+  secretEncrypted String   @map("secret_encrypted") @db.Text
+  events          Json
+  status          String   @default("active") @db.VarChar(32)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([userId, url])
+  @@map("webhook_subscriptions")
+}
+
+model WebhookDelivery {
+  id             String    @id @default(uuid()) @db.Uuid
+  subscriptionId String    @map("subscription_id") @db.Uuid
+  event          String    @db.VarChar(64)
+  payload        Json
+  status         String    @default("pending") @db.VarChar(32)
+  attempts       Int       @default(0)
+  lastError      String?   @map("last_error") @db.Text
+  nextAttemptAt  DateTime  @default(now())
+  deliveredAt    DateTime?
+  createdAt      DateTime  @default(now())
+
+  @@index([subscriptionId, status, nextAttemptAt])
+  @@map("webhook_deliveries")
 }

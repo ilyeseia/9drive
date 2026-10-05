@@ -55,7 +55,8 @@ apiKeyRouter.post('/', async (req: AuthRequest, res, next) => {
 
 apiKeyRouter.delete('/:id', async (req: AuthRequest, res, next) => {
   try {
-    await prisma.apiKey.updateMany({ where: { id: String(req.params.id), userId: req.user!.id, revokedAt: null }, data: { status: 'revoked', revokedAt: new Date() } })
+    const result = await prisma.apiKey.updateMany({ where: { id: String(req.params.id), userId: req.user!.id, revokedAt: null }, data: { status: 'revoked', revokedAt: new Date() } })
+    if (result.count === 0) return res.status(404).json({ code: 'API_KEY_NOT_FOUND', message: 'API key not found.' })
     return res.json({ status: 'ok' })
   } catch (error) {
     return next(error)

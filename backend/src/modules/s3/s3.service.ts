@@ -5,6 +5,7 @@ import type { Response } from 'express'
 import type { Readable } from 'node:stream'
 import { prisma } from '../../config/prisma.js'
 import { decryptText } from '../../utils/crypto.js'
+import { assertFetchAllowed } from '../../utils/ssrf.js'
 
 type S3Config = S3StorageConfig
 type FileWithAccount = File & { connectedAccount: ConnectedAccount }
@@ -14,7 +15,8 @@ function contentDisposition(type: 'inline' | 'attachment', fileName: string) {
   return `${type}; filename="${fileName.replaceAll('"', '')}"`
 }
 
-export function createS3Client(config: S3Config) {
+export async function createS3Client(config: S3Config) {
+  if (config.endpoint) await assertFetchAllowed(config.endpoint)
   return new S3Client({
     region: config.region,
     endpoint: config.endpoint ?? undefined,
@@ -31,7 +33,7 @@ export async function getS3ConfigForAccount(accountId: string, userId?: string) 
 }
 
 export async function testS3Connection(config: S3Config) {
-  const client = createS3Client(config)
+  const client = await createS3Client(config)
   await client.send(new HeadBucketCommand({ Bucket: config.bucket }))
 }
 
@@ -44,7 +46,7 @@ export function buildS3ObjectKey(config: Pick<S3Config, 'prefix'>, userId: strin
 }
 
 export async function uploadS3Object(config: S3Config, key: string, body: NodeJS.ReadableStream, mimeType: string) {
-  const client = createS3Client(config)
+  const client = await createS3Client(config)
   await new Upload({
     client,
     params: { Bucket: config.bucket, Key: key, Body: body as Readable, ContentType: mimeType },
@@ -53,13 +55,13 @@ export async function uploadS3Object(config: S3Config, key: string, body: NodeJS
 
 export async function deleteS3Object(file: FileWithAccount) {
   const config = await getS3ConfigForAccount(file.connectedAccountId)
-  const client = createS3Client(config)
+  const client = await createS3Client(config)
   await client.send(new DeleteObjectCommand({ Bucket: config.bucket, Key: file.providerFileId }))
 }
 
 export async function syncS3Quota(accountId: string) {
   const config = await getS3ConfigForAccount(accountId)
-  const client = createS3Client(config)
+  const client = await createS3Client(config)
   let usedBytes = 0n
   let continuationToken: string | undefined
   do {
@@ -88,7 +90,7 @@ export async function syncS3Quota(accountId: string) {
 
 export async function streamS3File(file: FileWithAccount, range: string | undefined, res: Response, options: StreamOptions = {}) {
   const config = await getS3ConfigForAccount(file.connectedAccountId)
-  const client = createS3Client(config)
+  const client = await createS3Client(config)
   const response = await client.send(new GetObjectCommand({ Bucket: config.bucket, Key: file.providerFileId, Range: range }))
 
   res.status(response.ContentRange ? 206 : 200)

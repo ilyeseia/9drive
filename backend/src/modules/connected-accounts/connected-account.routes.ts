@@ -7,20 +7,12 @@ import { requireAuth, type AuthRequest } from '../../middleware/auth.middleware.
 import { decryptText, encryptText, hashToken, randomToken } from '../../utils/crypto.js'
 import { hashPassword } from '../../utils/password.js'
 import { createOAuthClient, syncGoogleQuota } from '../google/google.service.js'
-import { syncS3Quota, testS3Connection } from '../s3/s3.service.js'
+import { resolveRouteError } from '../providers/http-error.js'
+import { connectRedirectUrl, createConnectUrl, handleConnectCallback } from '../providers/connect-flow.js'
+import { createS3Account, s3ConnectSchema } from '../providers/account-service.js'
+import { syncS3Quota } from '../s3/s3.service.js'
 
 export const connectedAccountRouter = Router()
-
-const s3ConnectSchema = z.object({
-  name: z.string().trim().min(1).max(191),
-  bucket: z.string().trim().min(1).max(191),
-  region: z.string().trim().min(1).max(191),
-  endpoint: z.string().url().optional().or(z.literal('')),
-  accessKeyId: z.string().min(1),
-  secretAccessKey: z.string().min(1),
-  forcePathStyle: z.boolean().optional(),
-  quotaBytes: z.string().regex(/^\d+$/).optional().nullable(),
-})
 
 async function syncQuotaForAccount(account: { id: string; provider: string }) {
   if (account.provider === 's3') return syncS3Quota(account.id)
@@ -82,76 +74,16 @@ async function createGoogleConnectUrl(req: AuthRequest) {
 connectedAccountRouter.post('/s3', requireAuth, async (req: AuthRequest, res, next) => {
   try {
     const body = s3ConnectSchema.parse(req.body)
-    const providerConfig = await prisma.providerConfig.findFirstOrThrow({ where: { provider: 'google_drive', status: 'active' }, orderBy: { createdAt: 'desc' } })
-    const providerAccountId = `${body.bucket}:${body.endpoint || body.region}`
-    const existingAccount = await prisma.connectedAccount.findUnique({ where: { userId_provider_providerAccountId: { userId: req.user!.id, provider: 's3', providerAccountId } } })
-    const account = existingAccount
-      ? await prisma.connectedAccount.update({
-        where: { id: existingAccount.id },
-        data: {
-          providerConfigId: providerConfig.id,
-          email: `${body.bucket} (S3)`,
-          displayName: body.name,
-          accessTokenEncrypted: encryptText('s3'),
-          refreshTokenEncrypted: encryptText(randomToken()),
-          tokenExpiresAt: new Date(Date.now() + 100 * 365 * 24 * 60 * 60 * 1000),
-          scopes: [],
-          status: 'connected',
-        },
-      })
-      : await prisma.connectedAccount.create({ data: {
-        userId: req.user!.id,
-        providerConfigId: providerConfig.id,
-        provider: 's3',
-        providerAccountId,
-        email: `${body.bucket} (S3)`,
-        displayName: body.name,
-        accessTokenEncrypted: encryptText('s3'),
-        refreshTokenEncrypted: encryptText(randomToken()),
-        tokenExpiresAt: new Date(Date.now() + 100 * 365 * 24 * 60 * 60 * 1000),
-        scopes: [],
-        status: 'connected',
-      } })
-    const config = await prisma.s3StorageConfig.upsert({
-      where: { connectedAccountId: account.id },
-      create: {
-        userId: req.user!.id,
-        connectedAccountId: account.id,
-        name: body.name,
-        bucket: body.bucket,
-        region: body.region,
-        endpoint: body.endpoint || null,
-        accessKeyIdEncrypted: encryptText(body.accessKeyId),
-        secretAccessKeyEncrypted: encryptText(body.secretAccessKey),
-        forcePathStyle: body.forcePathStyle ?? Boolean(body.endpoint),
-        quotaBytes: body.quotaBytes ? BigInt(body.quotaBytes) : null,
-      },
-      update: {
-        name: body.name,
-        bucket: body.bucket,
-        region: body.region,
-        endpoint: body.endpoint || null,
-        accessKeyIdEncrypted: encryptText(body.accessKeyId),
-        secretAccessKeyEncrypted: encryptText(body.secretAccessKey),
-        forcePathStyle: body.forcePathStyle ?? Boolean(body.endpoint),
-        quotaBytes: body.quotaBytes ? BigInt(body.quotaBytes) : null,
-        status: 'active',
+    const { account, quota } = await createS3Account(req.user!.id, body)
+    return res.status(201).json({
+      account: {
+        ...account,
+        storageAccount: { ...quota, totalBytes: quota.totalBytes?.toString() ?? null, usedBytes: quota.usedBytes.toString(), availableBytes: quota.availableBytes?.toString() ?? null, trashBytes: quota.trashBytes?.toString() ?? null },
       },
     })
-    try {
-      await testS3Connection(config)
-      const quota = await syncS3Quota(account.id)
-      return res.status(201).json({
-        account: {
-          ...account,
-          storageAccount: { ...quota, totalBytes: quota.totalBytes?.toString() ?? null, usedBytes: quota.usedBytes.toString(), availableBytes: quota.availableBytes?.toString() ?? null, trashBytes: quota.trashBytes?.toString() ?? null },
-        },
-      })
-    } catch (error) {
-      if (!existingAccount) await prisma.connectedAccount.delete({ where: { id: account.id } }).catch(() => undefined)
-      throw error
-    }
   } catch (error) {
+    const payload = resolveRouteError(error)
+    if (payload?.code === 'SSRF_BLOCKED') return res.status(400).json({ code: 'SSRF_BLOCKED', message: 'Blocked disallowed S3 endpoint.' })
     return next(error)
   }
 })
@@ -187,7 +119,7 @@ connectedAccountRouter.get('/google/callback', async (req, res, next) => {
     const oauth2 = google.oauth2({ version: 'v2', auth: client })
     const profile = await oauth2.userinfo.get()
     const providerAccountId = profile.data.id
-    const email = profile.data.email
+    const email = profile.data.email?.trim().toLowerCase()
     if (!providerAccountId || !email) return res.status(400).json({ code: 'GOOGLE_PROFILE_FAILED', message: 'Google profile missing id or email.' })
 
     if (oauthState.flow === 'login') {
@@ -280,6 +212,31 @@ connectedAccountRouter.get('/google/callback', async (req, res, next) => {
   }
 })
 
+connectedAccountRouter.get('/:provider/connect-url', requireAuth, async (req: AuthRequest, res, next) => {
+  try {
+    const provider = String(req.params.provider)
+    const query = z.object({ providerConfigId: z.string().min(1).optional() }).parse(req.query)
+    const result = await createConnectUrl(req.user!.id, provider, { providerConfigId: query.providerConfigId })
+    return res.json(result)
+  } catch (error) {
+    const payload = resolveRouteError(error)
+    if (payload) return res.status(payload.status).json({ code: payload.code, message: payload.message })
+    return next(error)
+  }
+})
+
+connectedAccountRouter.get('/:provider/callback', async (req, res, next) => {
+  try {
+    const provider = String(req.params.provider)
+    const outcome = await handleConnectCallback(provider, req.query as Record<string, unknown>)
+    return res.redirect(302, connectRedirectUrl(provider, outcome))
+  } catch (error) {
+    const payload = resolveRouteError(error)
+    if (payload) return res.status(payload.status).json({ code: payload.code, message: payload.message })
+    return next(error)
+  }
+})
+
 connectedAccountRouter.post('/:id/sync-quota', requireAuth, async (req: AuthRequest, res, next) => {
   try {
     const accountId = String(req.params.id)
@@ -302,7 +259,8 @@ connectedAccountRouter.post('/:id/sync-quota', requireAuth, async (req: AuthRequ
 connectedAccountRouter.delete('/:id', requireAuth, async (req: AuthRequest, res, next) => {
   try {
     const accountId = String(req.params.id)
-    await prisma.connectedAccount.updateMany({ where: { id: accountId, userId: req.user!.id }, data: { status: 'disconnected' } })
+    const result = await prisma.connectedAccount.updateMany({ where: { id: accountId, userId: req.user!.id }, data: { status: 'disconnected' } })
+    if (result.count === 0) return res.status(404).json({ code: 'ACCOUNT_NOT_FOUND', message: 'Connected account not found.' })
     return res.json({ status: 'ok' })
   } catch (error) {
     return next(error)
