@@ -37,6 +37,8 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required - copy .env.docker.example to .env and set it}
     command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:?REDIS_PASSWORD is required - copy .env.docker.example to .env and set it}"]
     volumes:
       - redis_data:/data
