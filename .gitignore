@@ -19,3 +19,6 @@ frontend/.env.*.local
 
 # Env backups hold real secrets - never commit them.
 .env.bak.*
+
+# DVR bridge secrets (FTP password, API key) - never commit
+.env.dvr

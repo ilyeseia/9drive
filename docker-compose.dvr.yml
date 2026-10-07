@@ -1,0 +1,36 @@
+services:
+  ftpd:
+    build: ./dvr-bridge/ftpd
+    container_name: 9drive-ftpd
+    restart: unless-stopped
+    environment:
+      FTP_USER: ${DVR_FTP_USER:-dvr}
+      FTP_PASS: ${DVR_FTP_PASS:?set DVR_FTP_PASS in .env.dvr}
+      PASV_ADDRESS: ${DVR_PASV_ADDRESS:-10.7.71.22}
+    ports:
+      - "21:21"
+      - "2120-2130:2120-2130"
+    volumes:
+      - dvr_storage:/home/dvr
+
+  bridge:
+    build: ./dvr-bridge/bridge
+    container_name: 9drive-bridge
+    restart: unless-stopped
+    environment:
+      API_URL: http://backend:4000
+      API_KEY: ${DVR_API_KEY:?set DVR_API_KEY in .env.dvr}
+      TARGET_ACCOUNT_ID: ${DVR_TARGET_ACCOUNT_ID:-}
+      FOLDER_ID: ${DVR_FOLDER_ID:-}
+      RETENTION_HOURS: ${DVR_RETENTION_HOURS:-48}
+      MIN_FREE_MB: ${DVR_MIN_FREE_MB:-2048}
+      SCAN_SECONDS: ${DVR_SCAN_SECONDS:-30}
+    volumes:
+      - dvr_storage:/srv
+    networks:
+      - internal
+    depends_on:
+      - backend
+
+volumes:
+  dvr_storage:
