@@ -229,6 +229,7 @@ describe('catalog accessor used by modules', () => {
       'dropbox',
       'onedrive',
       'pcloud',
+      'terabox',
     ])
   })
 })

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
-import { AlertTriangle, Cloud, Database, Link2, Plug, RefreshCw, Trash2 } from 'lucide-react'
+import { AlertTriangle, Cloud, Database, HardDrive, Link2, Plug, RefreshCw, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { DummyModal } from '@/components/drive/DummyModal'
@@ -15,6 +15,7 @@ type ProviderEntry = {
   displayName?: string | null
   email?: string
   status?: string
+  capabilities?: string[]
   quota?: StorageQuota | null
   health?: { state?: string; checkedAt?: string } | null
   lastSyncedAt?: string | null
@@ -33,6 +34,7 @@ type ProviderRow = {
   email: string
   displayName?: string | null
   status: string
+  capabilities: string[]
   usedBytes: string | null
   totalBytes: string | null
   availableBytes: string | null
@@ -48,6 +50,7 @@ function fromProviderEntry(entry: ProviderEntry): ProviderRow {
     email: entry.email ?? '',
     displayName: entry.displayName ?? null,
     status: entry.status ?? 'connected',
+    capabilities: entry.capabilities ?? [],
     usedBytes: entry.quota?.usedBytes ?? null,
     totalBytes: entry.quota?.totalBytes ?? null,
     availableBytes: entry.quota?.availableBytes ?? null,
@@ -64,6 +67,7 @@ function fromAccount(account: ConnectedAccount): ProviderRow {
     email: account.email,
     displayName: account.displayName ?? null,
     status: account.status,
+    capabilities: [],
     usedBytes: account.storageAccount?.usedBytes ?? null,
     totalBytes: account.storageAccount?.totalBytes ?? null,
     availableBytes: account.storageAccount?.availableBytes ?? null,
@@ -98,6 +102,10 @@ export function ProvidersPage() {
   const [s3Open, setS3Open] = useState(false)
   const [connectingS3, setConnectingS3] = useState(false)
   const [s3Form, setS3Form] = useState({ name: '', bucket: '', region: 'us-east-1', endpoint: '', accessKeyId: '', secretAccessKey: '', forcePathStyle: false, quotaBytes: '' })
+
+  const [teraOpen, setTeraOpen] = useState(false)
+  const [connectingTera, setConnectingTera] = useState(false)
+  const [teraForm, setTeraForm] = useState({ name: '', cookie: '' })
 
   const [syncingId, setSyncingId] = useState<string | null>(null)
   const [checkingId, setCheckingId] = useState<string | null>(null)
@@ -243,6 +251,27 @@ export function ProvidersPage() {
     }
   }
 
+  async function connectTeraBox(event: FormEvent) {
+    event.preventDefault()
+    setConnectingTera(true)
+    setMessage('')
+    try {
+      await apiFetch('/providers/terabox/accounts', {
+        method: 'POST',
+        body: JSON.stringify({ apiKey: teraForm.cookie.trim(), name: teraForm.name.trim() || undefined }),
+      })
+      setTeraOpen(false)
+      setTeraForm({ name: '', cookie: '' })
+      setMessage('TeraBox connected.')
+      await load()
+      notifyChanged()
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Failed to connect TeraBox')
+    } finally {
+      setConnectingTera(false)
+    }
+  }
+
   async function syncQuota(id: string) {
     setSyncingId(id)
     setMessage('')
@@ -293,10 +322,11 @@ export function ProvidersPage() {
     <>
       <PageHeader
         title="Providers"
-        description="Connect and manage storage accounts: Google Drive, S3-compatible endpoints, quota, and health."
+        description="Connect and manage storage accounts: Google Drive, S3-compatible endpoints, TeraBox, quota, and health."
         actions={
           <>
             <Button variant="outline" size="sm" onClick={() => setS3Open(true)}><Database className="h-4 w-4" />Connect S3</Button>
+            <Button variant="outline" size="sm" onClick={() => setTeraOpen(true)}><HardDrive className="h-4 w-4" />Connect TeraBox</Button>
             <Button variant="outline" size="sm" onClick={connectDropbox} disabled={connectingDropbox}><Cloud className="h-4 w-4" />{connectingDropbox ? 'Connecting...' : 'Connect Dropbox'}</Button>
             <Button size="sm" onClick={connectDrive} disabled={connectingGoogle}><Link2 className="h-4 w-4" />{connectingGoogle ? 'Connecting...' : 'Connect Drive'}</Button>
           </>
@@ -329,6 +359,7 @@ export function ProvidersPage() {
           <p className="mt-2 text-sm text-slate-500">Connect a Google Drive account or an S3-compatible bucket to start storing files.</p>
           <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
             <Button onClick={connectDrive} disabled={connectingGoogle}><Link2 className="h-4 w-4" />{connectingGoogle ? 'Opening...' : 'Connect Drive'}</Button>
+            <Button variant="outline" onClick={() => setTeraOpen(true)}><HardDrive className="h-4 w-4" />Connect TeraBox</Button>
             <Button variant="outline" onClick={connectDropbox} disabled={connectingDropbox}><Cloud className="h-4 w-4" />{connectingDropbox ? 'Opening...' : 'Connect Dropbox'}</Button>
             <Button variant="outline" onClick={() => setS3Open(true)}><Database className="h-4 w-4" />Connect S3</Button>
           </div>
@@ -357,6 +388,14 @@ export function ProvidersPage() {
                         <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-bold capitalize', statusClass)}>{row.status}</span>
                         <span className="flex items-center gap-1 capitalize"><span className={cn('h-2 w-2 rounded-full', healthColor)} />{row.healthState ?? 'no health data'}</span>
                       </p>
+                      {row.capabilities.length > 0 ? (
+                        <p className="mt-1.5 flex flex-wrap gap-1">
+                          {row.capabilities.slice(0, 6).map((cap) => (
+                            <span key={cap} className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-500">{cap}</span>
+                          ))}
+                          {row.capabilities.length > 6 ? <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-500">+{row.capabilities.length - 6} more</span> : null}
+                        </p>
+                      ) : null}
                     </div>
                   </div>
                   <div className="grid grid-cols-3 gap-2 sm:flex">
@@ -405,6 +444,20 @@ export function ProvidersPage() {
           <div className="grid gap-3 sm:flex sm:justify-end">
             <Button variant="outline" type="button" onClick={() => setS3Open(false)} disabled={connectingS3}>Cancel</Button>
             <Button type="submit" disabled={connectingS3}>{connectingS3 ? 'Connecting...' : 'Connect S3'}</Button>
+          </div>
+        </form>
+      </DummyModal>
+
+      <DummyModal open={teraOpen} title="Connect TeraBox" description="Paste your TeraBox session cookie to link this storage account." onClose={() => setTeraOpen(false)}>
+        <form className="grid gap-4" onSubmit={connectTeraBox}>
+          <input className="h-11 rounded-xl border border-slate-200 px-3 text-sm" placeholder="Display name (optional)" value={teraForm.name} onChange={(event) => setTeraForm({ ...teraForm, name: event.target.value })} />
+          <input className="h-11 rounded-xl border border-slate-200 px-3 text-sm" placeholder="ndus cookie value" type="password" autoComplete="off" value={teraForm.cookie} onChange={(event) => setTeraForm({ ...teraForm, cookie: event.target.value })} required />
+          <p className="text-xs text-slate-500">
+            Sign in at terabox.com, open DevTools (F12) → Application → Cookies → www.terabox.com, and copy the <span className="font-bold">ndus</span> cookie. Paste either the value alone or the full <span className="font-bold">ndus=…</span> pair.
+          </p>
+          <div className="grid gap-3 sm:flex sm:justify-end">
+            <Button variant="outline" type="button" onClick={() => setTeraOpen(false)} disabled={connectingTera}>Cancel</Button>
+            <Button type="submit" disabled={connectingTera}>{connectingTera ? 'Connecting...' : 'Connect TeraBox'}</Button>
           </div>
         </form>
       </DummyModal>

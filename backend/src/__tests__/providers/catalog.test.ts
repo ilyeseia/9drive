@@ -13,7 +13,7 @@ const EXPECTED_STATUSES: Record<string, string> = {
   koofr: 'PLANNED',
   mega: 'RESEARCH_REQUIRED',
   mediafire: 'PLANNED',
-  terabox: 'RESEARCH_REQUIRED',
+  terabox: 'SUPPORTED',
   proton_drive: 'RESEARCH_REQUIRED',
   icedrive: 'UNSUPPORTED',
   sync: 'UNSUPPORTED',
@@ -94,6 +94,13 @@ describe('provider catalog', () => {
     expect(catalog.list()).toHaveLength(PROVIDER_CATALOG.length)
     expect(catalog.require('dropbox').id).toBe('dropbox')
     expect(() => catalog.require('not_a_provider')).toThrow()
-    expect(catalog.supported().map((entry) => entry.id)).toEqual(['google_drive', 's3', 'dropbox', 'onedrive', 'pcloud'])
+    expect(catalog.supported().map((entry) => entry.id)).toEqual([
+      'google_drive',
+      's3',
+      'dropbox',
+      'onedrive',
+      'pcloud',
+      'terabox',
+    ])
   })
 })

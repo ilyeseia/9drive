@@ -44,6 +44,11 @@ const ALL: Capability[] = [...ALL_CAPABILITIES];
 
 const PCLOUD_CAPABILITIES: Capability[] = ALL.filter((capability) => capability !== 'uploadResumable');
 
+/** Cookie-session TeraBox exposes no share endpoints and no resumable upload ids. */
+const TERABOX_CAPABILITIES: Capability[] = ALL.filter(
+  (capability) => capability !== 'uploadResumable' && capability !== 'createShare' && capability !== 'revokeShare',
+);
+
 const RAW_CATALOG: ProviderCatalogEntry[] = [
   {
     id: 'google_drive',
@@ -137,10 +142,11 @@ const RAW_CATALOG: ProviderCatalogEntry[] = [
   {
     id: 'terabox',
     displayName: 'TeraBox',
-    status: 'RESEARCH_REQUIRED',
-    authMode: 'oauth2',
-    capabilities: [],
-    notes: 'No public self-serve API (partner onboarding only); community integrations rely on undocumented endpoints, which 9Drive does not perform. Research into an official API offering would be required first.',
+    status: 'SUPPORTED',
+    authMode: 'api_key',
+    capabilities: TERABOX_CAPABILITIES,
+    notes:
+      'Reverse-engineered web API authenticated with the browser session cookie (paste the ndus value or the whole cookie header); no official self-serve API exists, so endpoints may change without notice. remoteId is the POSIX path (root children report parentId null); uploads stream in 4 MiB chunks, overwrite existing files and are limited to 4 GiB on free accounts; delete uses the shared recycle bin; sharing is not available over the cookie session.',
   },
   {
     id: 'proton_drive',

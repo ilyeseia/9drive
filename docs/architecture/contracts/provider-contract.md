@@ -41,7 +41,7 @@ Stable, lowercase, snake_case. Never renamed once shipped.
 | `koofr` | Koofr | `PLANNED` |
 | `mega` | MEGA | `RESEARCH_REQUIRED` |
 | `mediafx` → `mediafire` | MediaFire | `PLANNED` |
-| `terabox` | TeraBox | `RESEARCH_REQUIRED` |
+| `terabox` | TeraBox | `SUPPORTED` |
 | `proton_drive` | Proton Drive | `RESEARCH_REQUIRED` |
 | `icedrive` | Icedrive | `UNSUPPORTED` |
 | `sync` | Sync.com | `UNSUPPORTED` |
