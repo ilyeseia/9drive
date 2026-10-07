@@ -15,6 +15,7 @@ type ProviderEntry = {
   displayName?: string | null
   email?: string
   status?: string
+  lastError?: string | null
   capabilities?: string[]
   quota?: StorageQuota | null
   health?: { state?: string; checkedAt?: string } | null
@@ -34,6 +35,7 @@ type ProviderRow = {
   email: string
   displayName?: string | null
   status: string
+  lastError: string | null
   capabilities: string[]
   usedBytes: string | null
   totalBytes: string | null
@@ -50,6 +52,7 @@ function fromProviderEntry(entry: ProviderEntry): ProviderRow {
     email: entry.email ?? '',
     displayName: entry.displayName ?? null,
     status: entry.status ?? 'connected',
+    lastError: entry.lastError ?? null,
     capabilities: entry.capabilities ?? [],
     usedBytes: entry.quota?.usedBytes ?? null,
     totalBytes: entry.quota?.totalBytes ?? null,
@@ -67,6 +70,7 @@ function fromAccount(account: ConnectedAccount): ProviderRow {
     email: account.email,
     displayName: account.displayName ?? null,
     status: account.status,
+    lastError: null,
     capabilities: [],
     usedBytes: account.storageAccount?.usedBytes ?? null,
     totalBytes: account.storageAccount?.totalBytes ?? null,
@@ -256,13 +260,17 @@ export function ProvidersPage() {
     setConnectingTera(true)
     setMessage('')
     try {
-      await apiFetch('/providers/terabox/accounts', {
+      const result = await apiFetch<{ account?: { status?: string; lastError?: string | null } }>('/providers/terabox/accounts', {
         method: 'POST',
         body: JSON.stringify({ apiKey: teraForm.cookie.trim(), name: teraForm.name.trim() || undefined }),
       })
       setTeraOpen(false)
       setTeraForm({ name: '', cookie: '' })
-      setMessage('TeraBox connected.')
+      setMessage(
+        result.account?.status === 'unauthorized'
+          ? `TeraBox rejected this cookie: ${result.account.lastError || 'user not login'}. Paste a fresh cookie and try again.`
+          : 'TeraBox connected.',
+      )
       await load()
       notifyChanged()
     } catch (error) {
@@ -388,6 +396,11 @@ export function ProvidersPage() {
                         <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-bold capitalize', statusClass)}>{row.status}</span>
                         <span className="flex items-center gap-1 capitalize"><span className={cn('h-2 w-2 rounded-full', healthColor)} />{row.healthState ?? 'no health data'}</span>
                       </p>
+                      {row.status === 'unauthorized' && row.lastError ? (
+                        <p className="mt-1 truncate text-[11px] font-medium text-rose-500" title={row.lastError}>
+                          {row.lastError}
+                        </p>
+                      ) : null}
                       {row.capabilities.length > 0 ? (
                         <p className="mt-1.5 flex flex-wrap gap-1">
                           {row.capabilities.slice(0, 6).map((cap) => (

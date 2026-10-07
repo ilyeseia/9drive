@@ -199,7 +199,7 @@ describe('worker lifecycle against live Redis', () => {
   }, 30_000)
 
   it('fails stub processors immediately with NOT_IMPLEMENTED', async () => {
-    const id = trackJob(await enqueueJob('QUOTA_REFRESH', { userId: randomUUID() }))
+    const id = trackJob(await enqueueJob('SYNC', { userId: randomUUID(), accountId: 'acct-stub' }))
     const row = await waitForRow(id, (candidate) => candidate.status === 'failed')
     expect(row.attempts).toBe(1)
     expect(row.error).toContain('NOT_IMPLEMENTED')

@@ -8,7 +8,7 @@ import { Router } from 'express'
 import { z } from 'zod'
 import { prisma } from '../../config/prisma.js'
 import { requireAuth, type AuthRequest } from '../../middleware/auth.middleware.js'
-import { catalog, checkAccount } from '../../providers/index.js'
+import { catalog, checkAccount, refreshQuota } from '../../providers/index.js'
 import { jsonSafe } from '../../utils/serialize.js'
 import {
   apiKeyConnectSchema,
@@ -123,8 +123,13 @@ providerRouter.post('/:provider/accounts', requireAuth, async (req: AuthRequest,
 
     const body = apiKeyConnectSchema.parse(req.body)
     const account = await createApiKeyAccount(req.user!.id, provider, body)
+    await refreshQuota(account.id).catch(() => undefined)
+    const fresh = await prisma.connectedAccount.findUnique({
+      where: { id: account.id },
+      include: { storageAccount: true },
+    })
     const health = await prisma.providerHealth.findUnique({ where: { connectedAccountId: account.id } })
-    return res.status(201).json(jsonSafe({ account: toProviderAccountView(account, null, health) }))
+    return res.status(201).json(jsonSafe({ account: toProviderAccountView(fresh ?? account, fresh?.storageAccount ?? null, health) }))
   } catch (error) {
     return replyError(res, next, error)
   }

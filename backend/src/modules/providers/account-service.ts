@@ -60,6 +60,7 @@ export interface ProviderAccountView {
   displayName: string | null
   email: string
   status: string
+  lastError: string | null
   authMode: AuthMode
   capabilities: Capability[]
   quota: { totalBytes: bigint | null; usedBytes: bigint; availableBytes: bigint | null } | null
@@ -68,7 +69,7 @@ export interface ProviderAccountView {
 }
 
 export function toProviderAccountView(
-  account: { id: string; provider: string; displayName: string | null; email: string; status: string },
+  account: { id: string; provider: string; displayName: string | null; email: string; status: string; lastError?: string | null },
   storageAccount: StorageAccount | null | undefined,
   health: ProviderHealth | null | undefined,
 ): ProviderAccountView {
@@ -78,6 +79,7 @@ export function toProviderAccountView(
     displayName: account.displayName,
     email: account.email,
     status: account.status,
+    lastError: account.lastError ?? null,
     authMode: authModeFor(account.provider),
     capabilities: capabilitiesFor(account.provider),
     quota: storageAccount
@@ -207,5 +209,31 @@ export async function createApiKeyAccount(
     where: { userId_provider_providerAccountId: { userId, provider, providerAccountId } },
   })
   if (existing) return prisma.connectedAccount.update({ where: { id: existing.id }, data })
+
+  const reconnect = await findReconnectTarget(userId, provider, body.name)
+  if (reconnect) {
+    return prisma.connectedAccount.update({ where: { id: reconnect.id }, data: { ...data, providerAccountId } })
+  }
   return prisma.connectedAccount.create({ data: { userId, provider, providerAccountId, ...data } })
+}
+
+/**
+ * A fresh credential under the same label revives the existing account row
+ * (files keep their connected_account_id link). Falls back to the caller's
+ * create only when there is no label and more than one account exists.
+ */
+async function findReconnectTarget(
+  userId: string,
+  provider: string,
+  name?: string,
+): Promise<{ id: string } | null> {
+  const rows = await prisma.connectedAccount.findMany({
+    where: { userId, provider },
+    orderBy: { createdAt: 'desc' },
+    take: 50,
+    select: { id: true, displayName: true },
+  })
+  const label = name?.trim().toLowerCase()
+  if (label) return rows.find((row) => (row.displayName ?? '').trim().toLowerCase() === label) ?? null
+  return rows.length === 1 ? (rows[0] ?? null) : null
 }

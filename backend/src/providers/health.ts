@@ -156,8 +156,8 @@ function errorText(err: unknown): string {
 }
 
 export async function refreshQuota(accountId: string): Promise<void> {
+  const account = await loadAccount(accountId);
   try {
-    const account = await loadAccount(accountId);
     const provider = registry.get(account.provider);
     if (!provider.capabilities.has('getQuota')) {
       throw new ProviderError(
@@ -188,14 +188,28 @@ export async function refreshQuota(accountId: string): Promise<void> {
       create: { connectedAccountId: account.id, ...data },
       update: data,
     });
+    if (account.status === 'unauthorized') {
+      await prisma.connectedAccount
+        .update({ where: { id: account.id }, data: { status: 'connected', lastError: null } })
+        .catch(() => undefined);
+    }
   } catch (err) {
     if (ProviderError.is(err) && (err.code === 'ERR_AUTH_EXPIRED' || err.code === 'ERR_AUTH_REVOKED')) {
+      const message = errorText(err);
       await prisma.connectedAccount
         .update({
           where: { id: accountId },
-          data: { status: 'unauthorized', lastError: errorText(err).slice(0, 500) },
+          data: { status: 'unauthorized', lastError: message.slice(0, 500) },
         })
         .catch(() => undefined)
+      await recordProviderHealth({
+        provider: account.provider,
+        connectedAccountId: account.id,
+        state: 'unauthorized',
+        latencyMs: null,
+        message,
+        checkedAt: new Date(),
+      }).catch(() => undefined)
     }
     throw ProviderError.is(err)
       ? err

@@ -158,6 +158,7 @@ services:
       retries: 10
       start_period: 30s
     networks:
+      - public
       - internal
     security_opt:
       - no-new-privileges:true
