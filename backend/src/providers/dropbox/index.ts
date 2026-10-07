@@ -451,7 +451,7 @@ export class DropboxProvider implements StorageProvider {
           { path: destPath, mode: 'overwrite', autorename: false, mute: true, strict_conflict: false },
           {
             body: input.stream as Readable,
-            headers: { 'Content-Type': input.mimeType || FILE_MIME_TYPE },
+            headers: { 'Content-Type': 'application/octet-stream' },
             timeoutMs: TRANSFER_TIMEOUT_MS,
           },
         );
@@ -796,7 +796,7 @@ export class DropboxProvider implements StorageProvider {
         const started = await client.content<DropboxSessionStartResult>(
           'upload_session/start',
           { close: false },
-          { body: chunk, timeoutMs: TRANSFER_TIMEOUT_MS },
+          { body: chunk, headers: { 'Content-Type': 'application/octet-stream' }, timeoutMs: TRANSFER_TIMEOUT_MS },
         );
         sessionId = typeof started.data.session_id === 'string' ? started.data.session_id : '';
         if (!sessionId) {
@@ -818,7 +818,7 @@ export class DropboxProvider implements StorageProvider {
         const finished = await client.content<DropboxEntry>(
           'upload_session/finish',
           { cursor: { session_id: sessionId, offset }, commit },
-          { body: chunk, timeoutMs: TRANSFER_TIMEOUT_MS },
+          { body: chunk, headers: { 'Content-Type': 'application/octet-stream' }, timeoutMs: TRANSFER_TIMEOUT_MS },
         );
         offset += chunk.byteLength;
         return this.#uploadResult(finished.data, input.sizeBytes);
@@ -827,7 +827,7 @@ export class DropboxProvider implements StorageProvider {
       await client.content<Record<string, never>>(
         'upload_session/append_v2',
         { cursor: { session_id: sessionId, offset }, close: false },
-        { body: chunk, timeoutMs: TRANSFER_TIMEOUT_MS },
+        { body: chunk, headers: { 'Content-Type': 'application/octet-stream' }, timeoutMs: TRANSFER_TIMEOUT_MS },
       );
       offset += chunk.byteLength;
       current = next;
