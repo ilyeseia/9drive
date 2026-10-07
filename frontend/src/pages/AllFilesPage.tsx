@@ -491,18 +491,36 @@ export function AllFilesPage() {
     }
   }
 
+  async function handlePreviewError() {
+    if (!previewUrl) {
+      setPreviewError('Failed to load preview.')
+      return
+    }
+    try {
+      const response = await fetch(previewUrl)
+      const payload = await response.json().catch(() => null)
+      const message = payload && typeof payload.message === 'string' && payload.message ? payload.message : 'Failed to load preview.'
+      setPreviewError(message)
+    } catch {
+      setPreviewError('Failed to load preview.')
+    }
+  }
+
   async function downloadFile() {
     if (!activeFile?.id) return
-    const response = await fetch(`${API_URL}/files/${activeFile.id}/download`, { headers: { Authorization: `Bearer ${getAccessToken()}` } })
-    if (!response.ok) throw new Error('Download failed')
-    const blob = await response.blob()
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = activeFile.name
-    link.click()
-    URL.revokeObjectURL(url)
     setContextMenu({ x: 0, y: 0, file: null })
+    setLoading(true)
+    setMessage('')
+    try {
+      const data = await apiFetch<{ path?: string; url: string }>(`/files/${activeFile.id}/download-token`, { method: 'POST' })
+      const downloadPath = data.path ?? new URL(data.url).pathname
+      window.location.href = `${API_URL}${downloadPath}`
+      setMessage('Download started.')
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Download failed')
+    } finally {
+      setLoading(false)
+    }
   }
 
   async function downloadBatchAsZip() {
@@ -974,8 +992,9 @@ export function AllFilesPage() {
         <div className="flex h-[72dvh] w-full items-center justify-center overflow-hidden rounded-xl border border-slate-200 bg-slate-50 sm:h-[80vh]">
           {previewLoading ? <div className="p-6 text-center text-sm font-semibold text-slate-500">Loading preview...</div> : null}
           {previewError ? <div className="p-6 text-center text-sm text-red-600">{previewError}</div> : null}
-          {!previewLoading && !previewError && activePreviewKind === 'image' && previewUrl ? <img src={previewUrl} alt={activeFile?.name ?? 'File preview'} className="max-h-full max-w-full object-contain" onError={() => setPreviewError('Failed to load preview.')} /> : null}
-          {!previewLoading && !previewError && activePreviewKind === 'video' && previewUrl ? <div className="shared-video-shell"><video ref={previewVideoRef} controls playsInline preload="metadata" onError={() => setPreviewError('Failed to load preview.')}><source src={previewUrl} type={activeFile?.mimeType} /></video></div> : null}
+        {!previewLoading && !previewError && activePreviewKind === 'image' && previewUrl ? <img src={previewUrl} alt={activeFile?.name ?? 'File preview'} className="max-h-full max-w-full object-contain" onError={() => void handlePreviewError()} /> : null}
+        {!previewLoading && !previewError && activePreviewKind === 'video' && previewUrl ? <div className="shared-video-shell"><video ref={previewVideoRef} controls playsInline preload="metadata" onError={() => void handlePreviewError()}><source src={previewUrl} type={activeFile?.mimeType} /></video></div> : null}
+        {!previewLoading && !previewError && activePreviewKind === 'audio' && previewUrl ? <audio controls preload="metadata" src={previewUrl} onError={() => void handlePreviewError()} className="w-full max-w-2xl" /> : null}
           {!previewLoading && !previewError && activePreviewKind === 'document' && previewUrl ? <iframe src={previewUrl} title={activeFile?.name ?? 'File preview'} className="h-full w-full border-0 bg-white" /> : null}
           {!previewLoading && !previewError && activePreviewKind === 'office' && previewUrl ? (officeViewerUrl(previewUrl) ? <iframe src={officeViewerUrl(previewUrl) as string} title={activeFile?.name ?? 'File preview'} className="h-full w-full border-0 bg-white" /> : <div className="p-6 text-center text-sm text-slate-500">Office preview is disabled on this deployment. Use Download instead.</div>) : null}
           {!previewLoading && !previewError && !activePreviewKind ? <div className="p-6 text-center text-sm text-slate-500">Preview not available for this file type. Use Download instead.</div> : null}

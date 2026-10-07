@@ -1,4 +1,4 @@
-export type PreviewKind = 'image' | 'video' | 'document' | 'office'
+export type PreviewKind = 'image' | 'video' | 'audio' | 'document' | 'office'
 
 const officeMimeTypes = new Set([
   'application/msword',
@@ -19,6 +19,7 @@ export function getPreviewKind(mimeType: string | undefined): PreviewKind | null
   if (!mimeType) return null
   if (mimeType.startsWith('image/') || mimeType === 'application/vnd.google-apps.drawing') return 'image'
   if (mimeType.startsWith('video/')) return 'video'
+  if (mimeType.startsWith('audio/')) return 'audio'
   if (mimeType === 'application/pdf' || googleDocumentMimeTypes.has(mimeType)) return 'document'
   if (officeMimeTypes.has(mimeType)) return 'office'
   return null

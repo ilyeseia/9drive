@@ -16,6 +16,8 @@ import { ZipArchive } from 'archiver'
 import { createAuditLog } from '../../utils/audit.js'
 import { serializeBigInt } from '../../utils/serialize.js'
 import { copyProviderFile, streamProviderFileNeutral } from './provider-file.js'
+import { buildContext } from '../../providers/context.js'
+import { registry } from '../../providers/registry.js'
 
 const SHARE_TTL_MS = 30 * 24 * 60 * 60 * 1000
 
@@ -31,6 +33,20 @@ fileRouter.get('/preview/:token', publicTokenLimiter, noStoreHeaders, async (req
     })
     if (!preview || preview.file.status !== 'active') return res.status(404).json({ code: 'PREVIEW_NOT_FOUND', message: 'Preview token not found.' })
     return streamProviderFile(preview.file, req.headers.range, res, { disposition: 'inline' })
+  } catch (error) {
+    return next(error)
+  }
+})
+
+fileRouter.get('/download/:token', publicTokenLimiter, noStoreHeaders, async (req, res, next) => {
+  try {
+    const token = String(req.params.token)
+    const row = await prisma.filePreviewToken.findFirst({
+      where: { tokenHash: hashToken(token), expiresAt: { gt: new Date() } },
+      include: { file: { include: { connectedAccount: true } } },
+    })
+    if (!row || row.file.status !== 'active') return res.status(404).json({ code: 'DOWNLOAD_TOKEN_NOT_FOUND', message: 'Download token not found or expired.' })
+    return streamProviderFile(row.file, req.headers.range, res, { disposition: 'attachment' })
   } catch (error) {
     return next(error)
   }
@@ -497,6 +513,19 @@ fileRouter.post('/:id/preview-token', async (req: AuthRequest, res, next) => {
   }
 })
 
+fileRouter.post('/:id/download-token', async (req: AuthRequest, res, next) => {
+  try {
+    const fileId = String(req.params.id)
+    const file = await prisma.file.findFirstOrThrow({ where: { id: fileId, userId: req.user!.id, status: 'active' } })
+    const token = randomToken(32)
+    await prisma.filePreviewToken.create({ data: { fileId: file.id, userId: req.user!.id, tokenHash: hashToken(token), expiresAt: new Date(Date.now() + 10 * 60_000) } })
+    const path = `/files/download/${token}`
+    return res.status(201).json({ path, url: `${req.protocol}://${req.get('host')}${path}` })
+  } catch (error) {
+    return next(error)
+  }
+})
+
 fileRouter.get('/:id/view-url', async (req: AuthRequest, res, next) => {
   try {
     const fileId = String(req.params.id)
@@ -567,7 +596,7 @@ fileRouter.post('/batch-download', async (req: AuthRequest, res, next) => {
           const client = await createS3Client(config)
           const response = await client.send(new GetObjectCommand({ Bucket: config.bucket, Key: file.providerFileId }))
           stream = response.Body as Readable
-        } else {
+        } else if (file.provider === 'google_drive') {
           const auth = await getAuthedGoogleClient(file.connectedAccount)
           const headers = normalizeHeaders(await auth.getRequestHeaders())
           const exportTarget = googleDownloadExportMimeTypes[file.mimeType]
@@ -580,6 +609,12 @@ fileRouter.post('/batch-download', async (req: AuthRequest, res, next) => {
           const response = await fetch(url, { headers })
           if (!response.ok || !response.body) continue
           stream = Readable.fromWeb(response.body as any)
+        } else {
+          const provider = registry.tryGet(file.provider as never)
+          if (!provider) throw new Error(`No adapter registered for provider '${file.provider}'`)
+          const context = await buildContext(file.connectedAccountId)
+          const downloaded = await provider.download(context, { remoteId: file.providerFileId })
+          stream = downloaded.stream as Readable
         }
         archive.append(stream, { name: zipEntryName(fileName) })
       } catch (err) {

@@ -189,6 +189,14 @@ export async function refreshQuota(accountId: string): Promise<void> {
       update: data,
     });
   } catch (err) {
+    if (ProviderError.is(err) && (err.code === 'ERR_AUTH_EXPIRED' || err.code === 'ERR_AUTH_REVOKED')) {
+      await prisma.connectedAccount
+        .update({
+          where: { id: accountId },
+          data: { status: 'unauthorized', lastError: errorText(err).slice(0, 500) },
+        })
+        .catch(() => undefined)
+    }
     throw ProviderError.is(err)
       ? err
       : new ProviderError('ERR_INTERNAL', 'quota refresh failed', { cause: err });
