@@ -94,6 +94,17 @@ export interface ProviderContext {
   };
   signal?: AbortSignal;
   logger: (msg: string, meta?: Record<string, unknown>) => void;
+  /**
+   * Persist rotated api_key credentials (and optional profile fields) back to
+   * the ConnectedAccount. Supplied by buildContext so providers never touch
+   * the database or crypto directly (contract §6.1).
+   */
+  persistCredentials?: (next: {
+    apiKey: string;
+    apiSecret?: string;
+    displayName?: string | null;
+    email?: string | null;
+  }) => Promise<void>;
 }
 
 export interface QuotaInfo {

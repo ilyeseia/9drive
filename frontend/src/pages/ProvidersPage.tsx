@@ -109,7 +109,7 @@ export function ProvidersPage() {
 
   const [teraOpen, setTeraOpen] = useState(false)
   const [connectingTera, setConnectingTera] = useState(false)
-  const [teraForm, setTeraForm] = useState({ name: '', cookie: '' })
+  const [teraForm, setTeraForm] = useState({ name: '', cookie: '', email: '', password: '' })
 
   const [syncingId, setSyncingId] = useState<string | null>(null)
   const [checkingId, setCheckingId] = useState<string | null>(null)
@@ -260,16 +260,22 @@ export function ProvidersPage() {
     setConnectingTera(true)
     setMessage('')
     try {
+      const payload: Record<string, string> = {}
+      const name = teraForm.name.trim()
+      if (name) payload.name = name
+      if (teraForm.cookie.trim()) payload.apiKey = teraForm.cookie.trim()
+      if (teraForm.email.trim()) payload.email = teraForm.email.trim()
+      if (teraForm.password) payload.password = teraForm.password
       const result = await apiFetch<{ account?: { status?: string; lastError?: string | null } }>('/providers/terabox/accounts', {
         method: 'POST',
-        body: JSON.stringify({ apiKey: teraForm.cookie.trim(), name: teraForm.name.trim() || undefined }),
+        body: JSON.stringify(payload),
       })
       setTeraOpen(false)
-      setTeraForm({ name: '', cookie: '' })
+      setTeraForm({ name: '', cookie: '', email: '', password: '' })
       setMessage(
         result.account?.status === 'unauthorized'
-          ? `TeraBox rejected this cookie: ${result.account.lastError || 'user not login'}. Paste a fresh cookie and try again.`
-          : 'TeraBox connected.',
+          ? `TeraBox rejected these credentials: ${result.account.lastError || 'user not login'}. Check the password or paste a fresh cookie and try again.`
+          : 'TeraBox connected. The session renews automatically.',
       )
       await load()
       notifyChanged()
@@ -461,12 +467,14 @@ export function ProvidersPage() {
         </form>
       </DummyModal>
 
-      <DummyModal open={teraOpen} title="Connect TeraBox" description="Paste your TeraBox session cookie to link this storage account." onClose={() => setTeraOpen(false)}>
+      <DummyModal open={teraOpen} title="Connect TeraBox" description="Connect with your TeraBox email and password (recommended), or paste a session cookie." onClose={() => setTeraOpen(false)}>
         <form className="grid gap-4" onSubmit={connectTeraBox}>
           <input className="h-11 rounded-xl border border-slate-200 px-3 text-sm" placeholder="Display name (optional)" value={teraForm.name} onChange={(event) => setTeraForm({ ...teraForm, name: event.target.value })} />
-          <input className="h-11 rounded-xl border border-slate-200 px-3 text-sm" placeholder="ndus cookie value" type="password" autoComplete="off" value={teraForm.cookie} onChange={(event) => setTeraForm({ ...teraForm, cookie: event.target.value })} required />
+          <input className="h-11 rounded-xl border border-slate-200 px-3 text-sm" placeholder="TeraBox email" type="email" autoComplete="username" value={teraForm.email} onChange={(event) => setTeraForm({ ...teraForm, email: event.target.value })} />
+          <input className="h-11 rounded-xl border border-slate-200 px-3 text-sm" placeholder="TeraBox password (auto-renews the session)" type="password" autoComplete="new-password" value={teraForm.password} onChange={(event) => setTeraForm({ ...teraForm, password: event.target.value })} />
+          <input className="h-11 rounded-xl border border-slate-200 px-3 text-sm" placeholder="Or paste ndus cookie instead (optional)" type="password" autoComplete="off" value={teraForm.cookie} onChange={(event) => setTeraForm({ ...teraForm, cookie: event.target.value })} />
           <p className="text-xs text-slate-500">
-            Sign in at terabox.com, open DevTools (F12) → Application → Cookies → www.terabox.com, and copy the <span className="font-bold">ndus</span> cookie. Paste either the value alone or the full <span className="font-bold">ndus=…</span> pair.
+            Recommended: email + password. When TeraBox expires the session (error <span className="font-bold">-6: user not login</span>), 9Drive logs in again automatically and keeps the account connected. Cookie-only connections still work but need a manual re-paste after every expiry.
           </p>
           <div className="grid gap-3 sm:flex sm:justify-end">
             <Button variant="outline" type="button" onClick={() => setTeraOpen(false)} disabled={connectingTera}>Cancel</Button>

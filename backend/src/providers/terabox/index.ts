@@ -59,7 +59,9 @@ import {
   parseJson,
 } from './client.js';
 import { isTeraBoxConflict, mapTeraBoxErrno } from './errors.js';
+import { teraboxPassportLogin } from './login.js';
 import { controlMd5, decodeMd5, signDownload } from './sign.js';
+import { teraboxTransport } from './transport.js';
 
 const FILE_MIME_TYPE = 'application/octet-stream';
 const FOLDER_MIME_TYPE = 'inode/directory';
@@ -80,6 +82,77 @@ const PRECREATE_BLOCK_2 = 'a5fc157d78e6ad1c7e114b056c92821e';
 export const TERABOX_CAPABILITIES: readonly Capability[] = ALL_CAPABILITIES.filter(
   (capability) => capability !== 'uploadResumable' && capability !== 'createShare' && capability !== 'revokeShare',
 );
+
+interface TeraboxLoginSecret {
+  email: string;
+  password: string;
+}
+
+/** Renewed cookies stay hot for a minute so quota+health jobs share one login. */
+const RENEWAL_TTL_MS = 60_000;
+const renewalCache = new Map<string, { at: number; cookie: string }>();
+const renewalsInFlight = new Map<string, Promise<string | null>>();
+
+/** `apiSecret` carries `{email,password}` for accounts that opted into auto-renew. */
+function parseTeraboxLoginSecret(secret: string | undefined): TeraboxLoginSecret | null {
+  if (!secret) return null;
+  try {
+    const parsed = JSON.parse(secret) as { email?: unknown; password?: unknown };
+    const email = typeof parsed.email === 'string' ? parsed.email.trim() : '';
+    const password = typeof parsed.password === 'string' ? parsed.password : '';
+    return email && password ? { email, password } : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Passport-login the stored credentials, adopt the fresh cookie everywhere and
+ * persist it (contract §6.1: through ctx.persistCredentials, never directly).
+ * Concurrent callers for the same account share one in-flight login.
+ */
+async function renewTeraboxSession(
+  ctx: ProviderContext,
+  credentials: { apiKey: string; apiSecret?: string },
+  login: TeraboxLoginSecret,
+): Promise<string | null> {
+  const cached = renewalCache.get(ctx.account.id);
+  if (cached && Date.now() - cached.at < RENEWAL_TTL_MS) return cached.cookie;
+  const inFlight = renewalsInFlight.get(ctx.account.id);
+  if (inFlight) return inFlight;
+
+  const renewal = (async (): Promise<string | null> => {
+    const result = await teraboxPassportLogin({
+      email: login.email,
+      password: login.password,
+      // Follow the module transport so tests (and regional bases) stay local.
+      baseUrl: teraboxTransport().baseUrl,
+      signal: ctx.signal,
+    });
+    renewalCache.set(ctx.account.id, { at: Date.now(), cookie: result.cookie });
+    try {
+      await ctx.persistCredentials?.({
+        apiKey: result.cookie,
+        ...(credentials.apiSecret !== undefined ? { apiSecret: credentials.apiSecret } : {}),
+        ...(result.displayName ? { displayName: result.displayName } : {}),
+        email: login.email,
+      });
+    } catch (error) {
+      ctx.logger('TeraBox renewed session could not be persisted', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+    ctx.logger('TeraBox session renewed via passport login', {
+      displayName: result.displayName ?? undefined,
+    });
+    return result.cookie;
+  })().finally(() => {
+    renewalsInFlight.delete(ctx.account.id);
+  });
+
+  renewalsInFlight.set(ctx.account.id, renewal);
+  return renewal;
+}
 
 interface TeraBoxItem {
   fs_id?: number | string;
@@ -308,7 +381,18 @@ export class TeraBoxProvider implements StorageProvider {
         `provider '${this.id}' requires api_key credentials, received '${ctx.credentials.kind}'`,
       );
     }
-    return new TeraBoxClient({ cookie: ctx.credentials.apiKey, signal: ctx.signal, logger: ctx.logger });
+    const credentials = ctx.credentials;
+    const login = parseTeraboxLoginSecret(credentials.apiSecret);
+    return new TeraBoxClient({
+      cookie: credentials.apiKey,
+      signal: ctx.signal,
+      logger: ctx.logger,
+      // Accounts that stored email+password renew the revoked ndus session
+      // automatically the moment TeraBox answers -6 / a login redirect.
+      renew: login
+        ? () => renewTeraboxSession(ctx, credentials, login)
+        : undefined,
+    });
   }
 
   /** `filemetas` by path; `dlink` opts into the temporary download link field. */

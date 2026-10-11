@@ -305,7 +305,9 @@ async function buildContextInternal(
   } else if (authMode === 'api_key') {
     const apiKey = decryptOptional(account.accessTokenEncrypted, 'api key') ?? firstString(metadata.apiKey, metadata.api_key);
     if (!apiKey) throw new ProviderError('ERR_AUTH_EXPIRED', `account '${accountId}' has no API key`);
-    credentials = { kind: 'api_key', apiKey };
+    // Optional secondary secret (TeraBox: JSON {email,password} for passport renewal).
+    const apiSecret = decryptOptional(account.refreshTokenEncrypted, 'api key secret');
+    credentials = { kind: 'api_key', apiKey, ...(apiSecret ? { apiSecret } : {}) };
   } else {
     credentials = await resolveOAuthCredentials(account, opts.signal);
   }
@@ -323,6 +325,21 @@ async function buildContextInternal(
     },
     signal: opts.signal,
     logger: (msg, meta) => log.info(msg, meta ? redactMeta(meta) : undefined),
+    persistCredentials: async (next) => {
+      await prisma.connectedAccount.update({
+        where: { id: account.id },
+        data: {
+          accessTokenEncrypted: encryptText(next.apiKey),
+          ...(next.apiSecret !== undefined ? { refreshTokenEncrypted: encryptText(next.apiSecret) } : {}),
+          ...(next.displayName !== undefined && next.displayName !== null ? { displayName: next.displayName } : {}),
+          ...(next.email !== undefined && next.email !== null ? { email: next.email } : {}),
+          lastError: null,
+          ...(account.status === 'unauthorized' || account.status === 'error'
+            ? { status: 'connected' as const }
+            : {}),
+        },
+      });
+    },
   };
 }
 

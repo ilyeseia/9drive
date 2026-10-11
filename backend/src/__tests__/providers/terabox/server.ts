@@ -8,7 +8,7 @@
  * tests exercise the adapter's real request building.
  */
 
-import { createHash } from 'node:crypto';
+import { createCipheriv, createHash, generateKeyPairSync } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { Readable } from 'node:stream';
 import { ProviderError } from '../../../providers/errors.js';
@@ -32,6 +32,10 @@ export interface FakeTeraBoxOptions {
   omitUk?: boolean;
   /** Shell entries that answer `302 /login` (the real site's behaviour for `/`). */
   shellRedirects?: Array<'/' | '/main'>;
+  /** Serve the passport login endpoints (`/wap/outlogin/login`, `/passport/*`). */
+  passport?: boolean;
+  /** `/passport/login` answers `need verify` (captcha/2FA). */
+  passportNeedVerify?: boolean;
 }
 
 interface FakeNode {
@@ -56,6 +60,10 @@ export interface FakeTeraBoxServer {
   downloadCookies: (string | null)[];
   uploadChunkCalls: number;
   downloadCalls: number;
+  /** Successful `/passport/login` calls. */
+  passportLogins: number;
+  /** Cookie value minted by the last successful passport login. */
+  freshCookie: string | null;
   /** Plaintext control md5 the last `/api/create` answered (obfuscated). */
   lastControlMd5: string | null;
   close(): Promise<void>;
@@ -270,9 +278,29 @@ export async function startFakeTeraBox(options: FakeTeraBoxOptions = {}): Promis
 
   let origin = 'http://127.0.0.1:0';
   const dlinkFor = (node: FakeNode): string => `${origin}/dl/${node.fsId}`;
+  let freshCookie: string | null = null;
+  let passportLogins = 0;
+
+  let passportWrapped: { pp1: string; pp2: string } | null = null;
+  if (options.passport) {
+    const { publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
+    const pem = publicKey.export({ type: 'spki', format: 'pem' }).toString();
+    const pp2 = '0123456789abcdef';
+    const cipher = createCipheriv('aes-128-cbc', Buffer.from(pp2, 'utf8'), Buffer.from(pp2, 'utf8'));
+    const encrypted = Buffer.concat([cipher.update(Buffer.from(pem, 'utf8')), cipher.final()]);
+    passportWrapped = { pp1: `${pp2}${encrypted.toString('base64')}`, pp2 };
+  }
+
+  const readRequestBody = (req: IncomingMessage): Promise<string> =>
+    new Promise((resolve) => {
+      const chunks: Buffer[] = [];
+      req.on('data', (chunk: Buffer) => chunks.push(chunk));
+      req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+    });
 
   const authorized = (req: IncomingMessage): boolean => {
     const cookie = req.headers.cookie ?? '';
+    if (freshCookie !== null && cookie.includes(`ndus=${freshCookie}`)) return true;
     return cookie.includes(`ndus=${expectedCookie}`);
   };
 
@@ -325,6 +353,51 @@ export async function startFakeTeraBox(options: FakeTeraBoxOptions = {}): Promis
       }
 
       if (url.searchParams.has('jsToken')) tokenRequests.push(`${method} ${pathname}`);
+
+      if (options.passport) {
+        if (method === 'GET' && pathname === '/wap/outlogin/login') {
+          const body =
+            '<html><head><script>var templateData = {"bdstoken":"","pcftoken":"pcft-fake","csrf":"csrf-fake","newDomain":{}};</script></head><body>login</body></html>';
+          res.writeHead(200, {
+            'content-type': 'text/html',
+            'content-length': Buffer.byteLength(body),
+            'set-cookie': 'browserid=fake-browser; Path=/',
+          });
+          res.end(body);
+          return;
+        }
+
+        if (pathname === '/passport/getpubkey') {
+          json(res, { data: { pp1: passportWrapped?.pp1 ?? '', pp2: passportWrapped?.pp2 ?? '' } });
+          return;
+        }
+
+        if (method === 'POST' && pathname === '/passport/prelogin') {
+          json(res, { code: 0, data: { seval: 'seval-fake', random: 424242, timestamp: 1_700_000_000 } });
+          return;
+        }
+
+        if (method === 'POST' && pathname === '/passport/login') {
+          passportLogins += 1;
+          const form = await readRequestBody(req);
+          if (!form.includes('pwd=') || !form.includes('email=')) {
+            json(res, { code: 1, errmsg: 'bad password' });
+            return;
+          }
+          if (options.passportNeedVerify) {
+            json(res, { code: 1, errmsg: 'need verify' });
+            return;
+          }
+          freshCookie = `fresh-cookie-${passportLogins}`;
+          res.writeHead(200, {
+            'content-type': 'application/json',
+            'content-length': Buffer.byteLength(JSON.stringify({ code: 0, data: { displayName: 'Passport User' } })),
+            'set-cookie': [`ndus=${freshCookie}; Path=/`, 'browserid=fake-browser; Path=/'],
+          });
+          res.end(JSON.stringify({ code: 0, data: { displayName: 'Passport User' } }));
+          return;
+        }
+      }
 
       if (pathname === '/api/check/login') {
         json(res, options.omitUk ? { errno: 0 } : { errno: 0, uk: 987654321 });
@@ -674,6 +747,12 @@ export async function startFakeTeraBox(options: FakeTeraBoxOptions = {}): Promis
     get downloadCalls() {
       return downloadCalls;
     },
+    get passportLogins() {
+      return passportLogins;
+    },
+    get freshCookie() {
+      return freshCookie;
+    },
     get lastControlMd5() {
       return lastControlMd5;
     },
@@ -706,6 +785,8 @@ export async function startFakeTeraBox(options: FakeTeraBoxOptions = {}): Promis
 
 export interface FakeContextOverrides extends FakeTeraBoxOptions {
   apiKey?: string;
+  apiSecret?: string;
+  persistCredentials?: ProviderContext['persistCredentials'];
   signal?: AbortSignal;
   config?: Record<string, unknown>;
   logger?: ProviderContext['logger'];
@@ -716,6 +797,7 @@ export function makeContext(overrides: FakeContextOverrides = {}): ProviderConte
     credentials: {
       kind: 'api_key',
       apiKey: overrides.apiKey ?? 'ndus=valid-cookie',
+      ...(overrides.apiSecret ? { apiSecret: overrides.apiSecret } : {}),
     },
     account: {
       id: 'account-terabox-1',
@@ -727,6 +809,7 @@ export function makeContext(overrides: FakeContextOverrides = {}): ProviderConte
     },
     signal: overrides.signal,
     logger: overrides.logger ?? (() => undefined),
+    ...(overrides.persistCredentials ? { persistCredentials: overrides.persistCredentials } : {}),
   };
 }
 

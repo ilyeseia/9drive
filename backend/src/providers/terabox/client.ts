@@ -21,6 +21,7 @@ import { request, type Dispatcher } from 'undici';
 import { assertFetchAllowed } from '../../utils/ssrf.js';
 import { ProviderError } from '../errors.js';
 import {
+  AUTH_ERRNOS,
   TOKEN_REFRESH_ERRNOS,
   mapTeraBoxErrno,
   mapTeraBoxHttpStatus,
@@ -75,6 +76,12 @@ export interface TeraBoxClientOptions {
   baseUrl?: string;
   signal?: AbortSignal;
   logger?: (msg: string, meta?: Record<string, unknown>) => void;
+  /**
+   * Passport-login renewal: invoked at most once per client when TeraBox
+   * rejects the session (errno `-6` / login redirect / login page). Returns
+   * the fresh cookie header to adopt, or null to give up.
+   */
+  renew?: () => Promise<string | null>;
 }
 
 /**
@@ -198,15 +205,17 @@ export async function gatedDownload(
 }
 
 export class TeraBoxClient {
-  readonly #cookie: string;
+  #cookie: string;
   readonly #signal: AbortSignal | undefined;
   readonly #logger: ((msg: string, meta?: Record<string, unknown>) => void) | undefined;
   readonly #transport = teraboxTransport();
+  readonly #renew: (() => Promise<string | null>) | undefined;
   #baseUrl: string;
   #jsToken = '';
   #uploadHost: string | null = null;
   #regionSwitches = 0;
   #tokenRetries = 0;
+  #renewUsed = false;
 
   constructor(options: TeraBoxClientOptions) {
     const cookie = normalizeTeraBoxCookie(options.cookie);
@@ -217,6 +226,28 @@ export class TeraBoxClient {
     this.#baseUrl = (options.baseUrl ?? this.#transport.baseUrl).replace(/\/+$/, '');
     this.#signal = options.signal;
     this.#logger = options.logger;
+    this.#renew = options.renew;
+  }
+
+  /**
+   * One-shot session renewal: adopt the cookie the passport login produced and
+   * clear every derived token so the retried request starts clean.
+   */
+  async #maybeRenew(): Promise<boolean> {
+    if (!this.#renew || this.#renewUsed) return false;
+    this.#renewUsed = true;
+    try {
+      const cookie = await this.#renew();
+      if (!cookie) return false;
+      this.#cookie = normalizeTeraBoxCookie(cookie);
+      this.#jsToken = '';
+      this.#tokenRetries = 0;
+      this.#uploadHost = null;
+      this.#logger?.('TeraBox session renewed via passport login');
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   get baseUrl(): string {
@@ -315,6 +346,9 @@ export class TeraBoxClient {
       const location = headerValue(response.headers.location);
       await response.body.dump({ limit: 64 * 1024 }).catch(() => undefined);
       if (location && /(^|\/)login(\?|$)/.test(location)) {
+        if (await this.#maybeRenew()) {
+          return this.#call<T>(method, endpoint, options, depth + 1);
+        }
         throw new ProviderError(
           'ERR_AUTH_EXPIRED',
           'TeraBox redirected to the login page: the session cookie is no longer valid',
@@ -339,6 +373,9 @@ export class TeraBoxClient {
 
     if (payload === undefined) {
       if (isHtml(text) && /(^|["'(=\/])\/login/.test(text)) {
+        if (await this.#maybeRenew()) {
+          return this.#call<T>(method, endpoint, options, depth + 1);
+        }
         throw new ProviderError(
           'ERR_AUTH_EXPIRED',
           'TeraBox returned a login page: the session cookie is no longer valid',
@@ -359,6 +396,15 @@ export class TeraBoxClient {
       this.#tokenRetries += 1;
       await this.ensureJsToken(true);
       return this.#call<T>(method, endpoint, options, depth + 1);
+    }
+
+    // `errno -6` ("user not login") is TeraBox revoking the ndus session —
+    // usually when the source browser rotated it. With a stored
+    // email+password the client renews via passport login and retries once.
+    if (errno !== null && errno !== 0 && AUTH_ERRNOS.has(errno) && depth < MAX_REDIRECTS) {
+      if (await this.#maybeRenew()) {
+        return this.#call<T>(method, endpoint, options, depth + 1);
+      }
     }
 
     // `filemetas` answers `{"errno":12,"info":[{"errno":-9}]}`: the per-item code

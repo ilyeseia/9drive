@@ -7,6 +7,7 @@ import type { ConnectedAccount, ProviderHealth, StorageAccount } from '@prisma/c
 import { z } from 'zod'
 import { prisma } from '../../config/prisma.js'
 import { catalog, ProviderError, registry } from '../../providers/index.js'
+import { teraboxPassportLogin } from '../../providers/terabox/login.js'
 import type { AuthMode, Capability } from '../../providers/types.js'
 import { encryptText, hashToken, randomToken } from '../../utils/crypto.js'
 import { assertFetchAllowed } from '../../utils/ssrf.js'
@@ -26,10 +27,17 @@ export const s3ConnectSchema = z.object({
   quotaBytes: z.string().regex(/^\d+$/).optional().nullable(),
 })
 
-export const apiKeyConnectSchema = z.object({
-  apiKey: z.string().min(1).max(4096),
-  name: z.string().trim().min(1).max(191).optional(),
-})
+export const apiKeyConnectSchema = z
+  .object({
+    apiKey: z.string().min(1).max(4096).optional(),
+    name: z.string().trim().min(1).max(191).optional(),
+    /** TeraBox passport login: stored (encrypted) for automatic session renewal. */
+    email: z.string().trim().email().max(320).optional(),
+    password: z.string().min(1).max(512).optional(),
+  })
+  .refine((value) => Boolean(value.apiKey) || Boolean(value.email && value.password), {
+    message: 'provide a session cookie/api key, or both email and password',
+  })
 
 export type S3ConnectInput = z.infer<typeof s3ConnectSchema>
 export type ApiKeyConnectInput = z.infer<typeof apiKeyConnectSchema>
@@ -193,17 +201,41 @@ export async function createApiKeyAccount(
   provider: string,
   body: ApiKeyConnectInput,
 ): Promise<ConnectedAccount> {
-  const providerAccountId = `apikey:${hashToken(body.apiKey).slice(0, 32)}`
+  let apiKey = body.apiKey?.trim() ?? ''
+  let displayName = body.name
+  let email = `${provider} (API key)`
+  let apiSecret: string | null = null
+
+  if (provider === 'terabox') {
+    // Password mode: log in now to mint the cookie, and keep the credentials
+    // so every -6 ("user not login") renews the session automatically.
+    if (body.email && body.password) {
+      apiSecret = JSON.stringify({ email: body.email, password: body.password })
+      email = body.email
+    }
+    if (!apiKey) {
+      if (!body.email || !body.password) {
+        throw new ProviderError('ERR_INVALID_INPUT', 'TeraBox requires a session cookie or an email + password')
+      }
+      const login = await teraboxPassportLogin({ email: body.email, password: body.password })
+      apiKey = login.cookie
+      if (!displayName && login.displayName) displayName = login.displayName
+    }
+  } else if (!apiKey) {
+    throw new ProviderError('ERR_INVALID_INPUT', `provider '${provider}' requires an API key`)
+  }
+
+  const providerAccountId = `apikey:${hashToken(apiKey).slice(0, 32)}`
   const data = {
     providerConfigId: null,
-    email: `${provider} (API key)`,
-    accessTokenEncrypted: encryptText(body.apiKey),
-    refreshTokenEncrypted: null,
+    email,
+    accessTokenEncrypted: encryptText(apiKey),
+    refreshTokenEncrypted: apiSecret ? encryptText(apiSecret) : null,
     tokenExpiresAt: null,
     scopes: [],
     status: 'connected',
     lastError: null,
-    ...(body.name ? { displayName: body.name } : {}),
+    ...(displayName ? { displayName } : {}),
   }
   const existing = await prisma.connectedAccount.findUnique({
     where: { userId_provider_providerAccountId: { userId, provider, providerAccountId } },
