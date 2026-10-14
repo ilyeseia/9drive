@@ -76,6 +76,9 @@ function requireOAuthProvider(provider: string) {
   if (entry.authMode !== 'oauth2') {
     throw new RequestError(400, 'AUTH_MODE_UNSUPPORTED', 'This provider does not connect through OAuth2.')
   }
+  if (entry.connectMode === 'device_code') {
+    throw new RequestError(400, 'AUTH_MODE_UNSUPPORTED', 'This provider connects through a device-code flow, not a redirect.')
+  }
   if (entry.status !== 'SUPPORTED') {
     throw new RequestError(409, 'PROVIDER_NOT_AVAILABLE', 'This provider is not available yet.')
   }

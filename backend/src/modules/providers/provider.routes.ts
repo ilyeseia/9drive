@@ -8,7 +8,8 @@ import { Router } from 'express'
 import { z } from 'zod'
 import { prisma } from '../../config/prisma.js'
 import { requireAuth, type AuthRequest } from '../../middleware/auth.middleware.js'
-import { catalog, checkAccount, refreshQuota } from '../../providers/index.js'
+import { deviceFlowPollLimiter, deviceFlowStartLimiter } from '../../middleware/rate-limit.middleware.js'
+import { catalog, checkAccount, ProviderError, refreshQuota } from '../../providers/index.js'
 import { jsonSafe } from '../../utils/serialize.js'
 import {
   apiKeyConnectSchema,
@@ -23,6 +24,7 @@ import {
 } from './account-service.js'
 import { connectUrlInputSchema, connectRedirectUrl, createConnectUrl, handleConnectCallback } from './connect-flow.js'
 import { resolveRouteError, RequestError } from './http-error.js'
+import { pollTeraBoxDeviceFlow, startTeraBoxDeviceFlow } from './terabox-device-flow.js'
 
 export const providerRouter = Router()
 
@@ -30,6 +32,12 @@ function replyError(res: Response, next: NextFunction, error: unknown) {
   const payload = resolveRouteError(error)
   if (payload) return res.status(payload.status).json({ code: payload.code, message: payload.message })
   return next(error)
+}
+
+/** Admin-facing diagnostics: fixed error codes/messages only (never tokens, codes or URLs). */
+function logDeviceFlowError(step: string, error: unknown) {
+  if (ProviderError.is(error)) console.error(`[terabox_open] device ${step} failed: ${error.code} - ${error.message}`)
+  else if (!(error instanceof RequestError)) console.error(`[terabox_open] device ${step} failed unexpectedly`)
 }
 
 async function ownedAccountOr404(req: AuthRequest) {
@@ -43,6 +51,45 @@ providerRouter.get('/catalog', (_req: Request, res: Response) => res.json(catalo
 providerRouter.get('/', requireAuth, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     return res.json(jsonSafe(await listProviderAccountViews(req.user!.id)))
+  } catch (error) {
+    return replyError(res, next, error)
+  }
+})
+
+const deviceFlowPollSchema = z.object({ handle: z.string().min(1).max(128) })
+const routingToggleSchema = z.object({ enabled: z.boolean() })
+
+// TeraBox (official Open Platform) connects through device-code mode: the server holds the
+// device code, the browser gets an opaque handle bound to the authenticated user.
+providerRouter.post('/terabox_open/device/start', requireAuth, deviceFlowStartLimiter, async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    return res.json(await startTeraBoxDeviceFlow(req.user!.id))
+  } catch (error) {
+    logDeviceFlowError('start', error)
+    return replyError(res, next, error)
+  }
+})
+
+providerRouter.post('/terabox_open/device/poll', requireAuth, deviceFlowPollLimiter, async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const body = deviceFlowPollSchema.parse(req.body ?? {})
+    return res.json(await pollTeraBoxDeviceFlow(req.user!.id, body.handle))
+  } catch (error) {
+    logDeviceFlowError('poll', error)
+    return replyError(res, next, error)
+  }
+})
+
+providerRouter.patch('/accounts/:accountId/routing', requireAuth, async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const account = await ownedAccountOr404(req)
+    const body = routingToggleSchema.parse(req.body ?? {})
+    const existing = account.metadata && typeof account.metadata === 'object' && !Array.isArray(account.metadata) ? account.metadata : {}
+    await prisma.connectedAccount.update({
+      where: { id: account.id },
+      data: { metadata: { ...existing, routingEnabled: body.enabled } },
+    })
+    return res.json({ id: account.id, routingEnabled: body.enabled })
   } catch (error) {
     return replyError(res, next, error)
   }

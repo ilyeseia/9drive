@@ -14,6 +14,7 @@ const EXPECTED_STATUSES: Record<string, string> = {
   mega: 'RESEARCH_REQUIRED',
   mediafire: 'PLANNED',
   terabox: 'SUPPORTED',
+  terabox_open: 'SUPPORTED',
   proton_drive: 'RESEARCH_REQUIRED',
   icedrive: 'UNSUPPORTED',
   sync: 'UNSUPPORTED',
@@ -101,6 +102,7 @@ describe('provider catalog', () => {
       'onedrive',
       'pcloud',
       'terabox',
+      'terabox_open',
     ])
   })
 })

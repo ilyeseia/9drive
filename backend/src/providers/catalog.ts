@@ -19,6 +19,15 @@ export interface ProviderCatalogEntry {
   docsUrl?: string;
   notes?: string;
   s3Preset?: { endpoint: string; forcePathStyle: boolean; region: string };
+  /** `device_code` providers connect through their own start/poll routes, not the redirect flow. */
+  connectMode?: 'redirect' | 'device_code';
+  /**
+   * `required`: unknown or stale quota makes the account ineligible for automatic routing
+   * (never "unlimited"). Default `optional` keeps the historical behaviour.
+   */
+  quotaPolicy?: 'required' | 'optional';
+  /** Unofficial / reverse-engineered adapter: excluded from automatic routing unless opted in per account. */
+  experimental?: boolean;
 }
 
 const S3_CAPABILITIES: Capability[] = [
@@ -48,6 +57,23 @@ const PCLOUD_CAPABILITIES: Capability[] = ALL.filter((capability) => capability 
 const TERABOX_CAPABILITIES: Capability[] = ALL.filter(
   (capability) => capability !== 'uploadResumable' && capability !== 'createShare' && capability !== 'revokeShare',
 );
+
+/** Official Open Platform: no create-folder, share creation, resumable upload or range download is documented. */
+const TERABOX_OPEN_CAPABILITIES: Capability[] = [
+  'authenticate',
+  'getAccountInfo',
+  'getQuota',
+  'upload',
+  'download',
+  'list',
+  'getMetadata',
+  'search',
+  'rename',
+  'move',
+  'copy',
+  'delete',
+  'healthCheck',
+];
 
 const RAW_CATALOG: ProviderCatalogEntry[] = [
   {
@@ -141,12 +167,26 @@ const RAW_CATALOG: ProviderCatalogEntry[] = [
   },
   {
     id: 'terabox',
-    displayName: 'TeraBox',
+    displayName: 'TeraBox (unofficial cookie session, experimental)',
     status: 'SUPPORTED',
     authMode: 'api_key',
     capabilities: TERABOX_CAPABILITIES,
+    experimental: true,
+    quotaPolicy: 'required',
     notes:
       'Reverse-engineered web API authenticated with the browser session cookie (paste the ndus value or the whole cookie header); no official self-serve API exists, so endpoints may change without notice. remoteId is the POSIX path (root children report parentId null); uploads stream in 4 MiB chunks, overwrite existing files and are limited to 4 GiB on free accounts; delete uses the shared recycle bin; sharing is not available over the cookie session.',
+  },
+  {
+    id: 'terabox_open',
+    displayName: 'TeraBox (official Open Platform)',
+    status: 'SUPPORTED',
+    authMode: 'oauth2',
+    capabilities: TERABOX_OPEN_CAPABILITIES,
+    connectMode: 'device_code',
+    quotaPolicy: 'required',
+    docsUrl: 'https://www.terabox.com/integrations/docs?lang=en',
+    notes:
+      'Official TeraBox Open Platform (device-code QR authorization; requires an approved client_id/client_secret/private_secret). Access is limited to the application folder; no create-folder, sharing, resumable upload or range download. Uploads are staged to a temporary file because precreate needs every shard md5 up front. Tokens: access 2 days, refresh 30 days single-use.',
   },
   {
     id: 'proton_drive',

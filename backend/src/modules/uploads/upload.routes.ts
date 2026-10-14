@@ -14,7 +14,7 @@ import { buildContext } from '../../providers/context.js'
 import { ProviderError } from '../../providers/errors.js'
 import { refreshQuota } from '../../providers/health.js'
 import { registry } from '../../providers/registry.js'
-import { selectAccount } from '../../providers/routing.js'
+import { describeRejections, selectAccount, type RoutingRejection } from '../../providers/routing.js'
 import type { Capability, ProviderContext, StorageProvider } from '../../providers/types.js'
 import { getAppConnection } from '../../queues/connection.js'
 import { resolveRouteError } from '../providers/http-error.js'
@@ -334,16 +334,18 @@ export async function handleUpload(req: AuthRequest, res: Response, next: NextFu
         if (folderId && !folderRecord?.providerFolderId) requiredCapabilities.push('createFolder')
 
         await refreshQuotasOnce()
+        const diagnostics: RoutingRejection[] = []
         const selection = await selectAccount({
           userId: req.user!.id,
           requiredBytes: meta.sizeBytes,
           requiredCapabilities,
           targetAccountId,
           folderId,
+          diagnostics,
         })
         if (!selection) {
           fileStream.resume()
-          failed.push({ fieldName, fileName, code: 'NO_ACCOUNT_WITH_ENOUGH_SPACE', message: 'No connected storage account has enough space for this upload.' })
+          failed.push({ fieldName, fileName, code: 'NO_ACCOUNT_WITH_ENOUGH_SPACE', message: `No connected storage account can accept this upload: ${describeRejections(diagnostics)}.` })
           return
         }
         const { account, provider } = selection
@@ -500,8 +502,9 @@ uploadRouter.post('/resumable/init', requireAuth, uploadLimiter, async (req: Aut
     }
 
     await refreshStaleQuotas(req.user!.id)
-    const selection = await selectAccount({ userId: req.user!.id, requiredBytes: sizeBytes, requiredCapabilities, targetAccountId, folderId })
-    if (!selection) return res.status(400).json({ code: 'NO_ACCOUNT_WITH_ENOUGH_SPACE', message: 'No connected storage account has enough space.' })
+    const diagnostics: RoutingRejection[] = []
+    const selection = await selectAccount({ userId: req.user!.id, requiredBytes: sizeBytes, requiredCapabilities, targetAccountId, folderId, diagnostics })
+    if (!selection) return res.status(400).json({ code: 'NO_ACCOUNT_WITH_ENOUGH_SPACE', message: `No connected storage account can accept this upload: ${describeRejections(diagnostics)}.` })
 
     const session = await prisma.uploadSession.create({
       data: { userId: req.user!.id, targetConnectedAccountId: selection.account.id, folderId, fileName: body.fileName, mimeType: body.mimeType, sizeBytes, status: 'uploading' }

@@ -16,6 +16,12 @@ export interface OAuth2ClientConfig {
   authorizationParams?: Record<string, string>
   /** Extra form fields posted to the token endpoint. */
   tokenParams?: Record<string, string>
+  /**
+   * Provider-specific refresh for token endpoints that are not plain RFC 6749
+   * (e.g. TeraBox: signed requests, `errno` bodies, single-use refresh tokens).
+   * When set, `refreshAccessToken` delegates to it instead of the generic request.
+   */
+  refresh?: (options: TokenExchangeOptions) => Promise<OAuth2TokenResult>
 }
 
 export interface OAuth2TokenResult {
@@ -101,6 +107,8 @@ export function refreshAccessToken(options: TokenExchangeOptions): Promise<OAuth
   if (!options.refreshToken) {
     throw new ProviderError('ERR_AUTH_EXPIRED', 'A refresh token is required')
   }
+  const custom = hasOAuth2Client(options.provider) ? getOAuth2Client(options.provider).refresh : undefined
+  if (custom && !options.tokenUrl) return custom(options)
   return requestToken(options, {
     grant_type: 'refresh_token',
     refresh_token: options.refreshToken,

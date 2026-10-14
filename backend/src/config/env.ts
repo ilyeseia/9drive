@@ -70,6 +70,11 @@ const envSchema = z
     DROPBOX_CLIENT_ID: z.string().optional(),
     DROPBOX_CLIENT_SECRET: z.string().optional(),
     DROPBOX_REDIRECT_URI: z.string().optional(),
+    TERABOX_CLIENT_ID: z.string().optional(),
+    TERABOX_CLIENT_SECRET: z.string().optional(),
+    TERABOX_PRIVATE_SECRET: z.string().optional(),
+    TERABOX_APP_ROOT: z.string().optional(),
+    TERABOX_UPLOAD_CONCURRENCY: z.string().optional(),
   })
   .transform((value) => ({ ...value, PUBLIC_BASE_URL: value.PUBLIC_BASE_URL ?? value.FRONTEND_URL }))
 

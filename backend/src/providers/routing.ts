@@ -7,6 +7,7 @@
 import type { ConnectedAccount, StorageAccount, UploadRoutingPolicy } from '@prisma/client';
 import { prisma } from '../config/prisma.js';
 import { getAppConnection } from '../queues/connection.js';
+import { catalog, type ProviderCatalogEntry } from './catalog.js';
 import { ProviderError } from './errors.js';
 import { registry } from './registry.js';
 import type { Capability, ProviderId, StorageProvider } from './types.js';
@@ -39,6 +40,79 @@ const HEALTH_RANK: Record<string, number> = {
   unreachable: 3,
   unauthorized: 4,
 };
+
+/** Quota readings older than this are not trusted for providers with `quotaPolicy: 'required'`. */
+export const QUOTA_MAX_AGE_MS = 30 * 60_000;
+
+export type RoutingRejectionReason =
+  | 'routing_disabled'
+  | 'experimental_not_opted_in'
+  | 'missing_capability'
+  | 'quota_unknown'
+  | 'quota_stale'
+  | 'insufficient_space'
+  | 'unhealthy';
+
+export interface RoutingRejection {
+  accountId: string;
+  provider: ProviderId;
+  reason: RoutingRejectionReason;
+}
+
+const REJECTION_TEXT: Record<RoutingRejectionReason, string> = {
+  routing_disabled: 'automatic routing is disabled for this account',
+  experimental_not_opted_in: 'experimental provider is not enabled for automatic routing',
+  missing_capability: 'provider lacks a required capability',
+  quota_unknown: 'quota is unknown (refresh the account quota)',
+  quota_stale: 'quota reading is stale (refresh the account quota)',
+  insufficient_space: 'not enough free space',
+  unhealthy: 'account is unauthorized or unreachable',
+};
+
+/** Human-readable, credential-free summary of why accounts were rejected. */
+export function describeRejections(rejections: readonly RoutingRejection[]): string {
+  if (rejections.length === 0) return 'no connected storage account is available';
+  const byReason = new Map<RoutingRejectionReason, number>();
+  for (const rejection of rejections) byReason.set(rejection.reason, (byReason.get(rejection.reason) ?? 0) + 1);
+  return [...byReason.entries()].map(([reason, count]) => `${count} account(s): ${REJECTION_TEXT[reason]}`).join('; ');
+}
+
+function routingFlag(account: ConnectedAccount): boolean | undefined {
+  const metadata = account.metadata;
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return undefined;
+  const value = (metadata as Record<string, unknown>).routingEnabled;
+  return typeof value === 'boolean' ? value : undefined;
+}
+
+/**
+ * Per-account, per-provider eligibility that does not depend on the upload itself.
+ * Pure (no I/O) so it can be unit-tested deterministically.
+ *
+ * - `metadata.routingEnabled === false` removes the account from automatic routing.
+ * - `experimental` providers need `routingEnabled === true`.
+ * - `quotaPolicy: 'required'` providers must have a known, recent quota reading;
+ *   unknown or stale quota is NEVER treated as free space.
+ * An explicit target (the user picked the account) bypasses only the two routing
+ * switches, never the quota rule.
+ */
+export function routingExclusion(
+  account: Candidate,
+  entry: ProviderCatalogEntry | null,
+  targeted: boolean,
+  now: number,
+): RoutingRejectionReason | null {
+  const flag = routingFlag(account);
+  if (!targeted) {
+    if (flag === false) return 'routing_disabled';
+    if (entry?.experimental && flag !== true) return 'experimental_not_opted_in';
+  }
+  if (entry?.quotaPolicy === 'required') {
+    const storage = account.storageAccount;
+    if (!storage || storage.availableBytes === null || !storage.lastSyncedAt) return 'quota_unknown';
+    if (now - storage.lastSyncedAt.getTime() > QUOTA_MAX_AGE_MS) return 'quota_stale';
+  }
+  return null;
+}
 
 function normalizeMode(mode: string): RoutingMode {
   return (ROUTING_MODES as readonly string[]).includes(mode) ? (mode as RoutingMode) : DEFAULT_MODE;
@@ -275,6 +349,8 @@ export async function selectAccount(input: {
   requiredCapabilities: Capability[];
   targetAccountId?: string | null;
   folderId?: string | null;
+  /** Optional out-parameter: receives one entry per rejected account (see `describeRejections`). */
+  diagnostics?: RoutingRejection[];
 }): Promise<{ account: ConnectedAccount; provider: StorageProvider } | null> {
   try {
     if (!input || typeof input.userId !== 'string' || input.userId === '') {
@@ -306,21 +382,37 @@ export async function selectAccount(input: {
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
     });
 
+    const reject = (account: Candidate, reason: RoutingRejectionReason): void => {
+      input.diagnostics?.push({ accountId: account.id, provider: account.provider, reason });
+    };
+
     const supported = new Set(registry.supportedIds());
     let candidates = accounts.filter((account) => supported.has(account.provider));
+    const now = Date.now();
+    candidates = candidates.filter((account) => {
+      const reason = routingExclusion(account, catalog.get(account.provider), Boolean(targetAccountId), now);
+      if (reason) reject(account, reason);
+      return reason === null;
+    });
     candidates = candidates.filter((account) => {
       const capabilities = registry.capabilities(account.provider);
-      return requiredCapabilities.every((capability) => capabilities.has(capability));
+      const ok = requiredCapabilities.every((capability) => capabilities.has(capability));
+      if (!ok) reject(account, 'missing_capability');
+      return ok;
     });
 
     const reservations = await readReservations(candidates.map((account) => account.id));
-    candidates = candidates.filter((account) =>
-      fits(account, reservations.get(account.id) ?? 0n, input.requiredBytes),
-    );
+    candidates = candidates.filter((account) => {
+      const ok = fits(account, reservations.get(account.id) ?? 0n, input.requiredBytes);
+      if (!ok) reject(account, 'insufficient_space');
+      return ok;
+    });
     if (candidates.length === 0) return null;
 
     const ordered = targetAccountId ? candidates : orderCandidates(mode, candidates, policy, input.requiredBytes);
     const eligible = await applyHealthFilter(ordered, mode);
+    const keptIds = new Set(eligible.map((account) => account.id));
+    for (const account of ordered) if (!keptIds.has(account.id)) reject(account, 'unhealthy');
     if (eligible.length === 0) return null;
 
     const selected = targetAccountId ? eligible[0] : await finalizeSelection(mode, eligible, policy);

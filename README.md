@@ -378,6 +378,18 @@ Frontend runs at:
 http://localhost:5173
 ```
 
+## TeraBox (optional)
+
+9Drive can use TeraBox accounts through the **official TeraBox Open Platform** (QR-code
+authorization, application-folder access only) alongside Google Drive and S3. It needs
+credentials you must apply for from TeraBox and is off until configured; nothing else
+changes when it is unset. See [docs/terabox-integration.md](docs/terabox-integration.md),
+[docs/storage-routing.md](docs/storage-routing.md),
+[docs/storage-provider-architecture.md](docs/storage-provider-architecture.md) and
+[docs/terabox-troubleshooting.md](docs/terabox-troubleshooting.md). A separate, unofficial
+cookie-based TeraBox option exists but is marked experimental and is excluded from
+automatic routing by default.
+
 ## Docker Deployment
 
 This repository includes Docker files for running MySQL, backend, and frontend together.

@@ -200,6 +200,8 @@ export const publicTokenLimiter = createLimiter('public:token', { limit: 60, win
 export const uploadLimiter = createLimiter('upload', { limit: 30, windowMs: MINUTE, keyGenerator: userKey })
 export const adminSystemLimiter = createLimiter('admin:system', { limit: 20, windowMs: MINUTE, keyGenerator: userKey })
 export const apiKeyRateLimiter = createLimiter('api:key', { limit: 120, windowMs: MINUTE, keyGenerator: apiKeyKey })
+export const deviceFlowStartLimiter = createLimiter('provider:device:start', { limit: 10, windowMs: 15 * MINUTE, keyGenerator: userKey })
+export const deviceFlowPollLimiter = createLimiter('provider:device:poll', { limit: 240, windowMs: 5 * MINUTE, keyGenerator: userKey })
 
 function loginFailureKey(email: string) {
   return `${KEY_PREFIX}auth:lock:${shortHash(email.toLowerCase())}`

@@ -20,6 +20,9 @@ type ProviderEntry = {
   quota?: StorageQuota | null
   health?: { state?: string; checkedAt?: string } | null
   lastSyncedAt?: string | null
+  routingEnabled?: boolean | null
+  experimental?: boolean
+  quotaPolicy?: 'required' | 'optional'
 }
 type ConnectedAccount = {
   id: string
@@ -43,6 +46,9 @@ type ProviderRow = {
   healthState: string | null
   healthCheckedAt: string | null
   lastSyncedAt: string | null
+  routingEnabled: boolean | null
+  experimental: boolean
+  quotaPolicy: 'required' | 'optional'
 }
 
 function fromProviderEntry(entry: ProviderEntry): ProviderRow {
@@ -60,6 +66,9 @@ function fromProviderEntry(entry: ProviderEntry): ProviderRow {
     healthState: entry.health?.state ?? null,
     healthCheckedAt: entry.health?.checkedAt ?? null,
     lastSyncedAt: entry.lastSyncedAt ?? null,
+    routingEnabled: entry.routingEnabled ?? null,
+    experimental: entry.experimental ?? false,
+    quotaPolicy: entry.quotaPolicy ?? 'optional',
   }
 }
 
@@ -78,6 +87,9 @@ function fromAccount(account: ConnectedAccount): ProviderRow {
     healthState: account.status === 'connected' ? 'healthy' : account.status === 'unauthorized' ? 'unauthorized' : null,
     healthCheckedAt: null,
     lastSyncedAt: account.storageAccount?.lastSyncedAt ?? null,
+    routingEnabled: null,
+    experimental: false,
+    quotaPolicy: 'optional',
   }
 }
 
@@ -95,6 +107,17 @@ const healthDot: Record<string, string> = {
   unreachable: 'bg-red-500',
 }
 
+/** Mirrors the backend QUOTA_MAX_AGE_MS: older readings are not trusted for routing. */
+const QUOTA_MAX_AGE_MS = 30 * 60_000
+
+type DeviceFlow = { handle: string; qr: string; expiresAt: number; intervalSeconds: number }
+
+function quotaTrust(row: ProviderRow): 'ok' | 'unknown' | 'stale' {
+  if (row.quotaPolicy !== 'required') return 'ok'
+  if (row.availableBytes === null || !row.lastSyncedAt) return 'unknown'
+  return Date.now() - new Date(row.lastSyncedAt).getTime() > QUOTA_MAX_AGE_MS ? 'stale' : 'ok'
+}
+
 export function ProvidersPage() {
   const [rows, setRows] = useState<ProviderRow[]>([])
   const [loading, setLoading] = useState(true)
@@ -107,6 +130,11 @@ export function ProvidersPage() {
   const [connectingS3, setConnectingS3] = useState(false)
   const [s3Form, setS3Form] = useState({ name: '', bucket: '', region: 'us-east-1', endpoint: '', accessKeyId: '', secretAccessKey: '', forcePathStyle: false, quotaBytes: '' })
 
+  const [teraOfficialOpen, setTeraOfficialOpen] = useState(false)
+  const [startingTeraOfficial, setStartingTeraOfficial] = useState(false)
+  const [device, setDevice] = useState<DeviceFlow | null>(null)
+  const [deviceNote, setDeviceNote] = useState('')
+  const [routingId, setRoutingId] = useState<string | null>(null)
   const [teraOpen, setTeraOpen] = useState(false)
   const [connectingTera, setConnectingTera] = useState(false)
   const [teraForm, setTeraForm] = useState({ name: '', cookie: '', email: '', password: '' })
@@ -163,6 +191,80 @@ export function ProvidersPage() {
     window.addEventListener('message', onMessage)
     return () => window.removeEventListener('message', onMessage)
   }, [load])
+
+  // Official TeraBox: device-code authorization. The server keeps the device code; we only hold a handle.
+  useEffect(() => {
+    if (!device) return
+    let cancelled = false
+    let timer = 0
+    async function tick() {
+      if (cancelled || !device) return
+      if (Date.now() > device.expiresAt) {
+        setDevice(null)
+        setDeviceNote('The QR code expired. Start again to get a new one.')
+        return
+      }
+      try {
+        const result = await apiFetch<{ status: 'pending' | 'connected'; retryAfterSeconds?: number }>('/providers/terabox_open/device/poll', {
+          method: 'POST',
+          body: JSON.stringify({ handle: device.handle }),
+        })
+        if (cancelled) return
+        if (result.status === 'connected') {
+          setDevice(null)
+          setTeraOfficialOpen(false)
+          setMessage('TeraBox connected.')
+          load().then(notifyChanged).catch(() => undefined)
+          return
+        }
+        timer = window.setTimeout(tick, Math.max(2, result.retryAfterSeconds ?? device.intervalSeconds) * 1000)
+      } catch (err) {
+        if (cancelled) return
+        setDevice(null)
+        setDeviceNote(err instanceof Error ? err.message : 'TeraBox authorization failed.')
+      }
+    }
+    timer = window.setTimeout(tick, device.intervalSeconds * 1000)
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [device, load])
+
+  async function startTeraBoxOfficial() {
+    setStartingTeraOfficial(true)
+    setDeviceNote('')
+    try {
+      const data = await apiFetch<{ handle: string; qrCodeDataUrl: string; expiresInSeconds: number; intervalSeconds: number }>('/providers/terabox_open/device/start', { method: 'POST' })
+      if (!data.qrCodeDataUrl.startsWith('data:image/png;base64,')) throw new Error('Server returned an unexpected QR code.')
+      setDevice({ handle: data.handle, qr: data.qrCodeDataUrl, expiresAt: Date.now() + data.expiresInSeconds * 1000, intervalSeconds: data.intervalSeconds })
+    } catch (error) {
+      setDeviceNote(error instanceof Error ? error.message : 'Failed to start TeraBox authorization')
+    } finally {
+      setStartingTeraOfficial(false)
+    }
+  }
+
+  function closeTeraOfficial() {
+    setDevice(null)
+    setTeraOfficialOpen(false)
+    setDeviceNote('')
+  }
+
+  async function toggleRouting(row: ProviderRow) {
+    const effective = row.routingEnabled ?? !row.experimental
+    setRoutingId(row.id)
+    setMessage('')
+    try {
+      await apiFetch(`/providers/accounts/${row.id}/routing`, { method: 'PATCH', body: JSON.stringify({ enabled: !effective }) })
+      setRows((current) => current.map((entry) => (entry.id === row.id ? { ...entry, routingEnabled: !effective } : entry)))
+      setMessage(`Automatic routing ${!effective ? 'enabled' : 'disabled'} for this account.`)
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Failed to update routing')
+    } finally {
+      setRoutingId(null)
+    }
+  }
 
   async function connectDrive() {
     setConnectingGoogle(true)
@@ -340,7 +442,7 @@ export function ProvidersPage() {
         actions={
           <>
             <Button variant="outline" size="sm" onClick={() => setS3Open(true)}><Database className="h-4 w-4" />Connect S3</Button>
-            <Button variant="outline" size="sm" onClick={() => setTeraOpen(true)}><HardDrive className="h-4 w-4" />Connect TeraBox</Button>
+            <Button variant="outline" size="sm" onClick={() => setTeraOfficialOpen(true)}><HardDrive className="h-4 w-4" />Connect TeraBox</Button>
             <Button variant="outline" size="sm" onClick={connectDropbox} disabled={connectingDropbox}><Cloud className="h-4 w-4" />{connectingDropbox ? 'Connecting...' : 'Connect Dropbox'}</Button>
             <Button size="sm" onClick={connectDrive} disabled={connectingGoogle}><Link2 className="h-4 w-4" />{connectingGoogle ? 'Connecting...' : 'Connect Drive'}</Button>
           </>
@@ -373,7 +475,7 @@ export function ProvidersPage() {
           <p className="mt-2 text-sm text-slate-500">Connect a Google Drive account or an S3-compatible bucket to start storing files.</p>
           <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
             <Button onClick={connectDrive} disabled={connectingGoogle}><Link2 className="h-4 w-4" />{connectingGoogle ? 'Opening...' : 'Connect Drive'}</Button>
-            <Button variant="outline" onClick={() => setTeraOpen(true)}><HardDrive className="h-4 w-4" />Connect TeraBox</Button>
+            <Button variant="outline" onClick={() => setTeraOfficialOpen(true)}><HardDrive className="h-4 w-4" />Connect TeraBox</Button>
             <Button variant="outline" onClick={connectDropbox} disabled={connectingDropbox}><Cloud className="h-4 w-4" />{connectingDropbox ? 'Opening...' : 'Connect Dropbox'}</Button>
             <Button variant="outline" onClick={() => setS3Open(true)}><Database className="h-4 w-4" />Connect S3</Button>
           </div>
@@ -399,6 +501,7 @@ export function ProvidersPage() {
                       <p className="truncate text-sm font-extrabold text-slate-900">{row.displayName || row.email || row.id}</p>
                       <p className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-slate-500">
                         <span>{providerLabel(row.provider)}</span>
+                        {row.experimental ? <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-bold text-amber-700">Experimental</span> : null}
                         <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-bold capitalize', statusClass)}>{row.status}</span>
                         <span className="flex items-center gap-1 capitalize"><span className={cn('h-2 w-2 rounded-full', healthColor)} />{row.healthState ?? 'no health data'}</span>
                       </p>
@@ -417,12 +520,19 @@ export function ProvidersPage() {
                       ) : null}
                     </div>
                   </div>
-                  <div className="grid grid-cols-3 gap-2 sm:flex">
+                  <div className="grid grid-cols-2 gap-2 sm:flex">
+                    <Button size="sm" variant="outline" onClick={() => toggleRouting(row)} disabled={routingId === row.id} title="Include this account in automatic upload routing">Routing: {(row.routingEnabled ?? !row.experimental) ? 'On' : 'Off'}</Button>
                     <Button size="sm" variant="outline" onClick={() => syncQuota(row.id)} disabled={syncingId === row.id}><RefreshCw className={syncingId === row.id ? 'h-4 w-4 animate-spin' : 'h-4 w-4'} />Sync</Button>
                     <Button size="sm" variant="outline" onClick={() => checkHealth(row.id)} disabled={checkingId === row.id}><AlertTriangle className={checkingId === row.id ? 'h-4 w-4 animate-spin' : 'h-4 w-4'} />Health</Button>
                     <Button size="sm" variant="danger" onClick={() => setDisconnectTarget(row)}><Trash2 className="h-4 w-4" />Disconnect</Button>
                   </div>
                 </div>
+
+                {quotaTrust(row) !== 'ok' ? (
+                  <p className="mt-3 rounded-lg bg-amber-50 p-2 text-xs text-amber-700">
+                    {quotaTrust(row) === 'unknown' ? 'Quota unknown.' : 'Quota reading is stale.'} This account is skipped by automatic routing until the quota is synced (use Sync).
+                  </p>
+                ) : null}
 
                 <div className="mt-4">
                   {!quotaKnown ? (
@@ -467,8 +577,35 @@ export function ProvidersPage() {
         </form>
       </DummyModal>
 
-      <DummyModal open={teraOpen} title="Connect TeraBox" description="Connect with your TeraBox email and password (recommended), or paste a session cookie." onClose={() => setTeraOpen(false)}>
+      <DummyModal open={teraOfficialOpen} title="Connect TeraBox" description="Authorize 9Drive through the official TeraBox Open Platform. 9Drive never sees your password." onClose={closeTeraOfficial}>
+        <div className="grid gap-4">
+          {device ? (
+            <div className="grid justify-items-center gap-3">
+              <img src={device.qr} alt="TeraBox authorization QR code" className="h-56 w-56 rounded-xl border border-slate-200 bg-white p-2" />
+              <p className="text-center text-sm text-slate-600">Open the TeraBox app, sign in, and scan this code. This page connects automatically once you approve.</p>
+              <p className="flex items-center gap-2 text-xs text-slate-400"><RefreshCw className="h-3 w-3 animate-spin" />Waiting for approval...</p>
+            </div>
+          ) : (
+            <>
+              <p className="text-sm text-slate-600">You will scan a QR code with the TeraBox mobile app. Only a dedicated application folder in your TeraBox is accessible to 9Drive, not your other files.</p>
+              {deviceNote ? <p className="rounded-xl bg-red-50 p-3 text-sm text-red-700">{deviceNote}</p> : null}
+              <div className="grid gap-3 sm:flex sm:justify-end">
+                <Button variant="outline" type="button" onClick={closeTeraOfficial}>Cancel</Button>
+                <Button type="button" onClick={startTeraBoxOfficial} disabled={startingTeraOfficial}>{startingTeraOfficial ? 'Preparing...' : 'Show QR code'}</Button>
+              </div>
+            </>
+          )}
+          <button type="button" className="text-left text-xs text-slate-400 underline" onClick={() => { closeTeraOfficial(); setTeraOpen(true) }}>
+            Use an unofficial session cookie instead (experimental)
+          </button>
+        </div>
+      </DummyModal>
+
+      <DummyModal open={teraOpen} title="Connect TeraBox (experimental)" description="Unofficial: uses your TeraBox login or browser session. Prefer the official QR connection." onClose={() => setTeraOpen(false)}>
         <form className="grid gap-4" onSubmit={connectTeraBox}>
+          <p className="rounded-xl bg-amber-50 p-3 text-xs text-amber-700">
+            Unofficial and experimental: this stores your TeraBox credentials (encrypted) and relies on undocumented endpoints that can change or break without notice. Accounts connected this way are excluded from automatic routing until you enable it. The official QR connection above never sees your password.
+          </p>
           <input className="h-11 rounded-xl border border-slate-200 px-3 text-sm" placeholder="Display name (optional)" value={teraForm.name} onChange={(event) => setTeraForm({ ...teraForm, name: event.target.value })} />
           <input className="h-11 rounded-xl border border-slate-200 px-3 text-sm" placeholder="TeraBox email" type="email" autoComplete="username" value={teraForm.email} onChange={(event) => setTeraForm({ ...teraForm, email: event.target.value })} />
           <input className="h-11 rounded-xl border border-slate-200 px-3 text-sm" placeholder="TeraBox password (auto-renews the session)" type="password" autoComplete="new-password" value={teraForm.password} onChange={(event) => setTeraForm({ ...teraForm, password: event.target.value })} />

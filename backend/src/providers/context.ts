@@ -167,6 +167,29 @@ function redactMeta(meta: JsonRecord, depth = 0): JsonRecord {
   return out;
 }
 
+/**
+ * Providers with single-use refresh tokens (TeraBox) fail a refresh when another
+ * process already consumed the token. If the stored tokens changed and are still
+ * fresh, those are the result of that other refresh: use them instead of failing.
+ */
+async function findPeerRefresh(accountId: string, staleAccessToken: string | undefined): Promise<OAuth2TokenResult | null> {
+  try {
+    const row = await prisma.connectedAccount.findUnique({
+      where: { id: accountId },
+      select: { accessTokenEncrypted: true, refreshTokenEncrypted: true, tokenExpiresAt: true },
+    });
+    if (!row) return null;
+    const accessToken = decryptOptional(row.accessTokenEncrypted, 'access token');
+    const expiresAt = row.tokenExpiresAt?.getTime() ?? null;
+    if (!accessToken || accessToken === staleAccessToken) return null;
+    if (expiresAt === null || expiresAt - Date.now() <= OAUTH_REFRESH_WINDOW_MS) return null;
+    const refreshToken = decryptOptional(row.refreshTokenEncrypted, 'refresh token');
+    return { accessToken, ...(refreshToken ? { refreshToken } : {}), expiresAt };
+  } catch {
+    return null;
+  }
+}
+
 async function resolveOAuthCredentials(
   account: ConnectedAccountRecord,
   signal?: AbortSignal,
@@ -200,6 +223,7 @@ async function resolveOAuthCredentials(
 
   if (needsRefresh) {
     let refreshed: OAuth2TokenResult;
+    let adoptedPeerRefresh = false;
     try {
       if (!clientId || !clientSecret) {
         throw new ProviderError('ERR_AUTH_EXPIRED', 'OAuth client credentials are not configured for this account');
@@ -216,13 +240,19 @@ async function resolveOAuthCredentials(
         signal,
       });
     } catch (err) {
-      await markAuthFailure(account, errorText(err));
-      throw new ProviderError('ERR_AUTH_EXPIRED', `OAuth token refresh failed for provider '${account.provider}'`, {
-        cause: err,
-      });
+      const peer = await findPeerRefresh(account.id, accessToken);
+      if (peer) {
+        refreshed = peer;
+        adoptedPeerRefresh = true;
+      } else {
+        await markAuthFailure(account, errorText(err));
+        throw new ProviderError('ERR_AUTH_EXPIRED', `OAuth token refresh failed for provider '${account.provider}'`, {
+          cause: err,
+        });
+      }
     }
     try {
-      await prisma.connectedAccount.update({
+      if (!adoptedPeerRefresh) await prisma.connectedAccount.update({
         where: { id: account.id },
         data: {
           accessTokenEncrypted: encryptText(refreshed.accessToken),

@@ -74,10 +74,14 @@ export interface ProviderAccountView {
   quota: { totalBytes: bigint | null; usedBytes: bigint; availableBytes: bigint | null } | null
   health: { state: string; latencyMs: number | null; checkedAt: Date } | null
   lastSyncedAt: Date | null
+  /** `null` = provider default (experimental providers default to off). */
+  routingEnabled: boolean | null
+  experimental: boolean
+  quotaPolicy: 'required' | 'optional'
 }
 
 export function toProviderAccountView(
-  account: { id: string; provider: string; displayName: string | null; email: string; status: string; lastError?: string | null },
+  account: { id: string; provider: string; displayName: string | null; email: string; status: string; lastError?: string | null; metadata?: unknown },
   storageAccount: StorageAccount | null | undefined,
   health: ProviderHealth | null | undefined,
 ): ProviderAccountView {
@@ -101,7 +105,16 @@ export function toProviderAccountView(
       ? { state: health.state, latencyMs: health.latencyMs, checkedAt: health.checkedAt }
       : null,
     lastSyncedAt: storageAccount?.lastSyncedAt ?? null,
+    routingEnabled: routingFlagOf(account.metadata),
+    experimental: catalog.get(account.provider)?.experimental === true,
+    quotaPolicy: catalog.get(account.provider)?.quotaPolicy ?? 'optional',
   }
+}
+
+function routingFlagOf(metadata: unknown): boolean | null {
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return null
+  const value = (metadata as Record<string, unknown>).routingEnabled
+  return typeof value === 'boolean' ? value : null
 }
 
 export async function listProviderAccountViews(userId: string): Promise<ProviderAccountView[]> {
@@ -129,6 +142,13 @@ export async function disconnectOwnedAccount(userId: string, accountId: string):
     where: { id: accountId, userId },
     data: { status: 'disconnected' },
   })
+  if (result.count > 0) {
+    // TeraBox documents no token-revocation endpoint, so at least stop holding the credentials.
+    await prisma.connectedAccount.updateMany({
+      where: { id: accountId, userId, provider: 'terabox_open' },
+      data: { accessTokenEncrypted: null, refreshTokenEncrypted: null, tokenExpiresAt: null },
+    })
+  }
   return result.count > 0
 }
 
