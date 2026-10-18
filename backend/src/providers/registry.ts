@@ -15,10 +15,28 @@ import { ALL_CAPABILITIES, isCapability, type Capability, type HealthState, type
 export class ProviderRegistry {
   private readonly providers = new Map<ProviderId, StorageProvider>();
 
-  /** Re-registering an id replaces the previously registered adapter. */
+  /**
+   * Re-registering an id replaces the previously registered adapter (used by tests to swap in doubles).
+   * Production adapters use `registerAdapter`, which refuses to silently replace a different instance.
+   */
   register(provider: StorageProvider): void {
     if (!provider || typeof provider.id !== 'string' || provider.id.trim() === '') {
       throw new ProviderError('ERR_INVALID_INPUT', 'cannot register a provider without a non-empty id');
+    }
+    this.providers.set(provider.id, provider);
+  }
+
+  /**
+   * Strict registration: idempotent for the same instance, but a DIFFERENT instance for an already registered id is a
+   * duplicate/ambiguous registration and throws instead of silently winning.
+   */
+  registerAdapter(provider: StorageProvider): void {
+    if (!provider || typeof provider.id !== 'string' || provider.id.trim() === '') {
+      throw new ProviderError('ERR_INVALID_INPUT', 'cannot register a provider without a non-empty id');
+    }
+    const existing = this.providers.get(provider.id);
+    if (existing && existing !== provider) {
+      throw new ProviderError('ERR_INVALID_INPUT', `provider '${provider.id}' is already registered by a different adapter`);
     }
     this.providers.set(provider.id, provider);
   }

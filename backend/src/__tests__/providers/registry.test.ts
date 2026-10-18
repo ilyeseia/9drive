@@ -67,6 +67,16 @@ describe('ProviderRegistry', () => {
     expect(local.get('fake')).toBe(second)
   })
 
+  it('registerAdapter is idempotent for one instance but rejects a different adapter for the same id', () => {
+    const local = new ProviderRegistry()
+    const first = createFakeProvider({ displayName: 'First' })
+    local.registerAdapter(first)
+    local.registerAdapter(first)
+    expect(local.all()).toHaveLength(1)
+    expect(() => local.registerAdapter(createFakeProvider({ displayName: 'Second' }))).toThrow(ProviderError)
+    expect(local.get('fake')).toBe(first)
+  })
+
   it('exposes capabilities through the contract queries', () => {
     const local = new ProviderRegistry()
     local.register(createFakeProvider({ capabilities: ['upload', 'download', 'healthCheck'] }))

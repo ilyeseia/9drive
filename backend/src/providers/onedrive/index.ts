@@ -959,6 +959,6 @@ export function createOnedriveProvider(options: OnedriveProviderOptions = {}): O
 
 export function registerOnedriveProvider(): OnedriveProvider {
   registerOnedriveOAuth2Client();
-  registry.register(onedriveProvider);
+  registry.registerAdapter(onedriveProvider);
   return onedriveProvider;
 }

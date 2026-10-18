@@ -149,6 +149,7 @@ export async function createConnectUrl(
   input: ConnectUrlInput = {},
 ): Promise<ConnectUrlResult> {
   requireOAuthProvider(provider)
+  await sweepOrphanPendingAccounts(userId).catch(() => undefined)
   const config = await resolveProviderConfig(userId, provider, input)
   const state = randomToken()
   await prisma.oauthState.create({
@@ -181,8 +182,29 @@ async function loadAccountInfo(provider: string, accountId: string): Promise<Acc
   }
 }
 
+/** Removes a half-created account, but only while it still carries the `pending:` placeholder identity. */
 async function discardPending(pendingId: string): Promise<void> {
-  await prisma.connectedAccount.delete({ where: { id: pendingId } }).catch(() => undefined)
+  await prisma.connectedAccount
+    .deleteMany({ where: { id: pendingId, providerAccountId: { startsWith: 'pending:' } } })
+    .catch(() => undefined)
+}
+
+const PENDING_ORPHAN_AGE_MS = 15 * 60 * 1000
+
+/**
+ * Deletes `pending:` accounts older than the OAuth state lifetime that were never finalised (crash between
+ * create and finalise). Scoped to one user; returns how many rows were removed.
+ */
+export async function sweepOrphanPendingAccounts(userId: string, olderThanMs = PENDING_ORPHAN_AGE_MS): Promise<number> {
+  const result = await prisma.connectedAccount.deleteMany({
+    where: {
+      userId,
+      status: 'pending',
+      providerAccountId: { startsWith: 'pending:' },
+      createdAt: { lt: new Date(Date.now() - olderThanMs) },
+    },
+  })
+  return result.count
 }
 
 export async function handleConnectCallback(
@@ -209,7 +231,14 @@ export async function handleConnectCallback(
   }
 
   const userId = oauthState.userId
-  await prisma.oauthState.update({ where: { id: oauthState.id }, data: { usedAt: new Date() } })
+  // Atomic single-use: only one concurrent callback can flip usedAt from null; the others see count 0.
+  const consumed = await prisma.oauthState.updateMany({
+    where: { id: oauthState.id, usedAt: null },
+    data: { usedAt: new Date() },
+  })
+  if (consumed.count !== 1) {
+    throw new RequestError(400, 'OAUTH_STATE_INVALID', 'OAuth state is invalid or expired.')
+  }
 
   const denied = readString(query.error)
   if (denied) return { ok: false, reason: denied }
@@ -250,49 +279,58 @@ export async function handleConnectCallback(
     },
   })
 
-  const info = await loadAccountInfo(provider, pending.id)
-  const remoteId = info ? String(info.providerAccountId ?? '').trim() : ''
-  if (!info || !remoteId) {
+  let finalId = pending.id
+  try {
+    const info = await loadAccountInfo(provider, pending.id)
+    const remoteId = info ? String(info.providerAccountId ?? '').trim() : ''
+    if (!info || !remoteId) {
+      await discardPending(pending.id)
+      return { ok: false, reason: 'account_profile_failed' }
+    }
+
+    const duplicate = await prisma.connectedAccount.findFirst({
+      where: { userId, provider, providerAccountId: remoteId, NOT: { id: pending.id } },
+    })
+    if (duplicate) {
+      await prisma.connectedAccount.update({
+        where: { id: duplicate.id },
+        data: {
+          providerConfigId: config.id,
+          email: info.email?.trim() || duplicate.email,
+          displayName: info.displayName ?? duplicate.displayName,
+          avatarUrl: info.avatarUrl ?? duplicate.avatarUrl,
+          accessTokenEncrypted: encryptText(tokens.accessToken),
+          ...(tokens.refreshToken ? { refreshTokenEncrypted: encryptText(tokens.refreshToken) } : {}),
+          tokenExpiresAt: tokens.expiresAt === null ? null : new Date(tokens.expiresAt),
+          scopes,
+          ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
+          status: 'connected',
+          lastError: null,
+        },
+      })
+      finalId = duplicate.id
+      await discardPending(pending.id)
+    } else {
+      await prisma.connectedAccount.update({
+        where: { id: pending.id },
+        data: {
+          providerAccountId: remoteId,
+          email: info.email?.trim() || '',
+          displayName: info.displayName,
+          avatarUrl: info.avatarUrl,
+          status: 'connected',
+          lastError: null,
+        },
+      })
+    }
+  } catch (error) {
+    // Never leave a token-holding `pending:` row behind when a later step throws or races.
     await discardPending(pending.id)
-    return { ok: false, reason: 'account_profile_failed' }
+    console.error(`[${provider}] connect finalisation failed`, error instanceof Error ? error.message : 'unknown error')
+    return { ok: false, reason: 'account_persist_failed' }
   }
 
-  const duplicate = await prisma.connectedAccount.findFirst({
-    where: { userId, provider, providerAccountId: remoteId, NOT: { id: pending.id } },
-  })
-  if (duplicate) {
-    await prisma.connectedAccount.update({
-      where: { id: duplicate.id },
-      data: {
-        providerConfigId: config.id,
-        email: info.email?.trim() || duplicate.email,
-        displayName: info.displayName ?? duplicate.displayName,
-        avatarUrl: info.avatarUrl ?? duplicate.avatarUrl,
-        accessTokenEncrypted: encryptText(tokens.accessToken),
-        ...(tokens.refreshToken ? { refreshTokenEncrypted: encryptText(tokens.refreshToken) } : {}),
-        tokenExpiresAt: tokens.expiresAt === null ? null : new Date(tokens.expiresAt),
-        scopes,
-        ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
-        status: 'connected',
-        lastError: null,
-      },
-    })
-    await discardPending(pending.id)
-  } else {
-    await prisma.connectedAccount.update({
-      where: { id: pending.id },
-      data: {
-        providerAccountId: remoteId,
-        email: info.email?.trim() || '',
-        displayName: info.displayName,
-        avatarUrl: info.avatarUrl,
-        status: 'connected',
-        lastError: null,
-      },
-    })
-  }
-
-  await refreshQuota(duplicate ? duplicate.id : pending.id).catch(() => undefined)
+  await refreshQuota(finalId).catch(() => undefined)
   return { ok: true }
 }
 

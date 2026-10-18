@@ -949,7 +949,7 @@ export function createGoogleDriveProvider(options: GoogleDriveProviderOptions = 
 
 export function registerGoogleDriveProvider(): GoogleDriveProvider {
   registerGoogleDriveOAuth2Client();
-  registry.register(googleDriveProvider);
+  registry.registerAdapter(googleDriveProvider);
   return googleDriveProvider;
 }
 

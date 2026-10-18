@@ -516,5 +516,5 @@ export function createTeraBoxOpenProvider(): TeraBoxOpenProvider {
 }
 
 export function registerTeraBoxOpenProvider(): void {
-  registry.register(teraboxOpenProvider);
+  registry.registerAdapter(teraboxOpenProvider);
 }

@@ -152,9 +152,17 @@ export async function disconnectOwnedAccount(userId: string, accountId: string):
   return result.count > 0
 }
 
+export interface S3AccountDeps {
+  testConnection: typeof testS3Connection
+  syncQuota: typeof syncS3Quota
+}
+
+const defaultS3Deps: S3AccountDeps = { testConnection: testS3Connection, syncQuota: syncS3Quota }
+
 export async function createS3Account(
   userId: string,
   body: S3ConnectInput,
+  deps: S3AccountDeps = defaultS3Deps,
 ): Promise<{ account: ConnectedAccount; quota: StorageAccount }> {
   if (body.endpoint) {
     try {
@@ -164,8 +172,35 @@ export async function createS3Account(
     }
   }
   const providerAccountId = `${body.bucket}:${body.endpoint || body.region}`
+  const accessKeyIdEncrypted = encryptText(body.accessKeyId)
+  const secretAccessKeyEncrypted = encryptText(body.secretAccessKey)
+  const forcePathStyle = body.forcePathStyle ?? Boolean(body.endpoint)
+  const quotaBytes = body.quotaBytes ? BigInt(body.quotaBytes) : null
+
+  // Verify the credentials BEFORE anything is written: a failed attempt must never alter a working account.
+  const candidate = {
+    id: 'candidate',
+    userId,
+    connectedAccountId: 'candidate',
+    name: body.name,
+    bucket: body.bucket,
+    region: body.region,
+    endpoint: body.endpoint || null,
+    accessKeyIdEncrypted,
+    secretAccessKeyEncrypted,
+    forcePathStyle,
+    quotaBytes,
+    status: 'active',
+  } as unknown as Parameters<typeof testS3Connection>[0]
+  try {
+    await deps.testConnection(candidate)
+  } catch (error) {
+    throw new S3ConnectionTestError(error)
+  }
+
   const existing = await prisma.connectedAccount.findUnique({
     where: { userId_provider_providerAccountId: { userId, provider: 's3', providerAccountId } },
+    select: { id: true },
   })
   const data = {
     providerConfigId: null,
@@ -176,39 +211,34 @@ export async function createS3Account(
     tokenExpiresAt: new Date(Date.now() + S3_TOKEN_TTL_MS),
     scopes: [],
     status: 'connected',
+    lastError: null,
   }
-  const account = existing
-    ? await prisma.connectedAccount.update({ where: { id: existing.id }, data })
-    : await prisma.connectedAccount.create({ data: { userId, provider: 's3', providerAccountId, ...data } })
-  const config = await prisma.s3StorageConfig.upsert({
-    where: { connectedAccountId: account.id },
-    create: {
-      userId,
-      connectedAccountId: account.id,
-      name: body.name,
-      bucket: body.bucket,
-      region: body.region,
-      endpoint: body.endpoint || null,
-      accessKeyIdEncrypted: encryptText(body.accessKeyId),
-      secretAccessKeyEncrypted: encryptText(body.secretAccessKey),
-      forcePathStyle: body.forcePathStyle ?? Boolean(body.endpoint),
-      quotaBytes: body.quotaBytes ? BigInt(body.quotaBytes) : null,
-    },
-    update: {
-      name: body.name,
-      bucket: body.bucket,
-      region: body.region,
-      endpoint: body.endpoint || null,
-      accessKeyIdEncrypted: encryptText(body.accessKeyId),
-      secretAccessKeyEncrypted: encryptText(body.secretAccessKey),
-      forcePathStyle: body.forcePathStyle ?? Boolean(body.endpoint),
-      quotaBytes: body.quotaBytes ? BigInt(body.quotaBytes) : null,
-      status: 'active',
-    },
+  const configData = {
+    name: body.name,
+    bucket: body.bucket,
+    region: body.region,
+    endpoint: body.endpoint || null,
+    accessKeyIdEncrypted,
+    secretAccessKeyEncrypted,
+    forcePathStyle,
+    quotaBytes,
+  }
+  // Account and config are written together or not at all (no account row without its config).
+  const account = await prisma.$transaction(async (tx) => {
+    const row = await tx.connectedAccount.upsert({
+      where: { userId_provider_providerAccountId: { userId, provider: 's3', providerAccountId } },
+      create: { userId, provider: 's3', providerAccountId, ...data },
+      update: data,
+    })
+    await tx.s3StorageConfig.upsert({
+      where: { connectedAccountId: row.id },
+      create: { userId, connectedAccountId: row.id, ...configData },
+      update: { ...configData, status: 'active' },
+    })
+    return row
   })
   try {
-    await testS3Connection(config)
-    const quota = await syncS3Quota(account.id)
+    const quota = await deps.syncQuota(account.id)
     return { account, quota }
   } catch (error) {
     if (!existing) await prisma.connectedAccount.delete({ where: { id: account.id } }).catch(() => undefined)
@@ -262,7 +292,7 @@ export async function createApiKeyAccount(
   })
   if (existing) return prisma.connectedAccount.update({ where: { id: existing.id }, data })
 
-  const reconnect = await findReconnectTarget(userId, provider, body.name)
+  const reconnect = await findReconnectTarget(userId, provider, body.name, body.email)
   if (reconnect) {
     return prisma.connectedAccount.update({ where: { id: reconnect.id }, data: { ...data, providerAccountId } })
   }
@@ -278,13 +308,20 @@ async function findReconnectTarget(
   userId: string,
   provider: string,
   name?: string,
+  loginEmail?: string,
 ): Promise<{ id: string } | null> {
   const rows = await prisma.connectedAccount.findMany({
     where: { userId, provider },
     orderBy: { createdAt: 'desc' },
     take: 50,
-    select: { id: true, displayName: true },
+    select: { id: true, displayName: true, email: true },
   })
+  // A stable remote identity beats a label: the same login email is the same remote account.
+  const wantedEmail = loginEmail?.trim().toLowerCase()
+  if (wantedEmail) {
+    const byEmail = rows.find((row) => row.email.trim().toLowerCase() === wantedEmail)
+    if (byEmail) return byEmail
+  }
   const label = name?.trim().toLowerCase()
   if (label) return rows.find((row) => (row.displayName ?? '').trim().toLowerCase() === label) ?? null
   return rows.length === 1 ? (rows[0] ?? null) : null

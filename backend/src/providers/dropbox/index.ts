@@ -966,6 +966,6 @@ export function createDropboxProvider(options: DropboxProviderOptions = {}): Dro
 
 export function registerDropboxProvider(): DropboxProvider {
   registerDropboxOAuth2Client();
-  registry.register(dropboxProvider);
+  registry.registerAdapter(dropboxProvider);
   return dropboxProvider;
 }

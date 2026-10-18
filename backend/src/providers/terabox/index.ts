@@ -988,6 +988,6 @@ export function createTeraBoxProvider(options: TeraBoxProviderOptions = {}): Ter
 }
 
 export function registerTeraBoxProvider(): TeraBoxProvider {
-  registry.register(teraboxProvider);
+  registry.registerAdapter(teraboxProvider);
   return teraboxProvider;
 }

@@ -95,3 +95,18 @@ Environment: embedded PGlite (PostgreSQL protocol, one connection) + local Redis
   - F1 token endpoint 429 → same.
   - F2 four concurrent `buildContext` calls on one expired account → token endpoint is called more than once.
 - F3, F4, F8, F9, F11, F12 reproductions are written together with their fixes in Steps 3–5 (they need the connect-flow harness); until then they stay *Confirmed (code)*.
+
+## 6. Step 3 results — identity, duplicates, lifecycle
+
+| Finding | Change | Evidence |
+|---|---|---|
+| F3 | OAuth state consumed with `updateMany({id, usedAt: null})`; only the winner proceeds (`connect-flow.ts`). | `identity-lifecycle.test.ts` F3: 3 concurrent callbacks → 1 success, 2 `OAUTH_STATE_INVALID`, 1 token exchange; test fails when the guard is removed (verified). **Confirmed-and-fixed** (legacy Google callback still open → Step 5/F6). |
+| F4 | Finalisation wrapped; any failure discards the `pending:` row (only while still `pending:`); `sweepOrphanPendingAccounts` (per user, >15 min) runs when a connect URL is created. | tests: failed profile read leaves 0 pending rows; sweeper removes only stale rows. **Confirmed-and-fixed** for the provider-neutral flow. |
+| F8 | S3 credentials are tested before any write; account+config written in one transaction with an upsert; a failed attempt never changes a working account. Quota-sync failure after a *new* account is created removes it. | test with injected connection tester. **Confirmed-and-fixed** (real S3 not exercised: Blocked-by-credentials). |
+| F9 | Password-mode TeraBox login reconnects the existing row by (case-insensitive) login email before label/sole-account fallbacks. Cookie-only logins still get a per-cookie identity (no stable remote id is available without a verified API). | test: same email twice → one row. **Confirmed-and-fixed for password mode; cookie-only remains a known limitation.** |
+| F13 | `providers/lifecycle.ts`: explicit states, legacy mapping, guarded transitions, `isRoutable`. Not yet wired into health/refresh/routing — that is Step 4/5, so F13 stays **Confirmed-not-fixed** until then. | unit tests for transitions. |
+| F15 | `registry.registerAdapter` is idempotent for the same instance and throws for a different adapter under the same id; all seven production adapters use it. `register` keeps replace semantics for tests. | registry test. **Confirmed-and-fixed** for production adapters. |
+
+Not changed here: no schema change was needed in this step (the lifecycle uses the existing free-string `status` column).
+
+Verification (each provider-related test file run on a fresh DB, 42 files + routing/files API tests): all pass except three that are **not caused by this step**: `context.test.ts` (F21 `apiSecret` shape, pre-existing), `api/routing` (a PATCH policy UUID error on the local PGlite) and `api/files` (401 from the app-level auth in the local harness; the app-import tests are environment-limited here). They touch code this step did not change.

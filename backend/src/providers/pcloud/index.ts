@@ -850,6 +850,6 @@ export function createPcloudProvider(options: PcloudProviderOptions = {}): Pclou
 
 export function registerPcloudProvider(): PcloudProvider {
   registerPcloudOAuth2Client();
-  registry.register(pcloudProvider);
+  registry.registerAdapter(pcloudProvider);
   return pcloudProvider;
 }

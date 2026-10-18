@@ -1083,6 +1083,6 @@ export function createS3Provider(options: S3ProviderOptions = {}): S3Provider {
 }
 
 export function registerS3Provider(): S3Provider {
-  registry.register(s3Provider);
+  registry.registerAdapter(s3Provider);
   return s3Provider;
 }
