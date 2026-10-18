@@ -40,8 +40,8 @@ experimental and unofficial. No TeraBox API was invented.
 | F14 | Decryption failures swallowed | **Confirmed and fixed** |
 | F15 | Silent adapter replacement | **Fixed** for production adapters (`registerAdapter`); `register` keeps replace semantics for tests |
 | F16 | Unbounded listing | **Partially fixed**: listing bounded; routing still loads every connected account per selection (measured fine to 1000) |
-| F17 | Worker/job fan-out, circuit breaking, Retry-After-driven backoff | **Suspected — not investigated**; no circuit breaker was added |
-| F18 | Upload failure semantics | **Partially fixed** (failed session recorded); orphaned remote object after DB failure and no cross-account fallback are **Confirmed, not fixed** |
+| F17 | Worker/job fan-out | **Investigated**: the scheduled quota job is already bounded (25 accounts, 40 s budget, sequential). **Confirmed and fixed**: the upload request path refreshed quota for *every* stale account with unbounded concurrency; now capped to the 8 stalest, 4 at a time. Circuit breaker and Retry-After-driven backoff were **not added** (**Confirmed, not fixed**) |
+| F18 | Upload failure semantics | **Fixed**: failed session recorded; best-effort compensating delete of the remote object when the database write fails (unit-tested with a fake provider, route path type-checked only). No cross-account fallback (**Confirmed, not fixed**, design decision) |
 | F19 | Correlation ids / metrics | **Request ids and privacy-safe logs fixed**; no metrics backend (**Confirmed, not fixed**) |
 | F20 | Real provider credentials | **Blocked by credentials** |
 | F21 | `apiSecret` test mismatch | **Reclassified**: test fixture defect (feature is intentional), fixed |
@@ -83,8 +83,7 @@ Larger counts, a networked database and real provider latency were not measured.
 
 Verified by tests: tenant isolation of routing, listing and diagnostics (including a hostile `targetAccountId`),
 diagnostics and logs contain no tokens/emails, request ids cannot inject log text, undecryptable credentials surface as
-internal errors, disconnect wipes credentials. Not done: external penetration test, key-rotation tooling (documented as
-absent), provider-side token revocation, PKCE review beyond the existing flow (the existing `state` handling was made
+internal errors, disconnect wipes credentials. Not done: external penetration test, provider-side token revocation, PKCE review beyond the existing flow (the existing `state` handling was made
 atomic; PKCE was not added).
 
 ## I. Migrations and rollback
@@ -108,9 +107,9 @@ accounts (review manually; nothing is auto-deleted).
 
 1. Run the API-level suites against real PostgreSQL + Redis ≥ 5 (CI) and settle the `box` 409/400 expectation.
 2. Exercise real Google/S3/TeraBox accounts end to end (including a token revoked at the provider).
-3. Investigate F17: worker fan-out limits, per-provider concurrency, circuit breaker and Retry-After-aware backoff.
-4. Compensating delete for a remote object whose database write failed; decide on cross-account upload fallback.
-5. Key-rotation (re-encryption) tool before anyone rotates `TOKEN_ENCRYPTION_KEY`.
+3. Per-provider circuit breaker and Retry-After-aware backoff for provider calls (the worker fan-out itself is already bounded).
+4. Decide on cross-account upload fallback; verify the compensating delete against a real provider.
+5. (Done) Key re-encryption tool exists; rehearse it on a copy of production data before a real rotation.
 6. Provider-side revocation on disconnect where an endpoint exists; lifecycle counters/last-success timestamps if the
    product needs them (additive migration).
 7. Metrics (counters per provider/outcome) on top of the structured logs.

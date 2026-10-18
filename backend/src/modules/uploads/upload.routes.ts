@@ -13,6 +13,8 @@ import { noStoreHeaders, uploadLimiter } from '../../middleware/security.middlew
 import { buildContext } from '../../providers/context.js'
 import { ProviderError } from '../../providers/errors.js'
 import { refreshQuota } from '../../providers/health.js'
+import { mapWithConcurrency } from '../../utils/concurrency.js'
+import { recordWithCompensation } from './compensation.js'
 import { registry } from '../../providers/registry.js'
 import { describeRejections, selectAccount, type RoutingRejection } from '../../providers/routing.js'
 import type { Capability, ProviderContext, StorageProvider } from '../../providers/types.js'
@@ -120,27 +122,33 @@ async function releaseBytes(accountId: string, bytes: bigint) {
   }
 }
 
+// An upload request must not fan out to every account a user owns: refresh only the stalest few, a few at a time.
+// The scheduled QUOTA_REFRESH job (bounded, 25 per run) keeps the rest fresh.
+const REQUEST_QUOTA_REFRESH_CAP = 8
+const REQUEST_QUOTA_REFRESH_CONCURRENCY = 4
+
 async function refreshStaleQuotas(userId: string) {
   try {
     const accounts = await prisma.connectedAccount.findMany({
       where: { userId, status: 'connected' },
       include: { storageAccount: true },
     })
-    const stale = accounts.filter(
-      (account) =>
-        registry.has(account.provider) &&
-        (!account.storageAccount?.lastSyncedAt || account.storageAccount.lastSyncedAt.getTime() < Date.now() - 5 * 60_000),
-    )
+    const stale = accounts
+      .filter(
+        (account) =>
+          registry.has(account.provider) &&
+          (!account.storageAccount?.lastSyncedAt || account.storageAccount.lastSyncedAt.getTime() < Date.now() - 5 * 60_000),
+      )
+      .sort((a, b) => (a.storageAccount?.lastSyncedAt?.getTime() ?? 0) - (b.storageAccount?.lastSyncedAt?.getTime() ?? 0))
+      .slice(0, REQUEST_QUOTA_REFRESH_CAP)
     if (stale.length === 0) return
-    await Promise.allSettled(
-      stale.map(async (account) => {
-        try {
-          await refreshQuota(account.id)
-        } catch (error) {
-          logUpload('quota refresh failed', { accountId: account.id, message: errorText(error) })
-        }
-      }),
-    )
+    await mapWithConcurrency(stale, REQUEST_QUOTA_REFRESH_CONCURRENCY, async (account) => {
+      try {
+        await refreshQuota(account.id)
+      } catch (error) {
+        logUpload('quota refresh failed', { accountId: account.id, message: errorText(error) })
+      }
+    })
   } catch (error) {
     logUpload('quota refresh skipped', { userId, message: errorText(error) })
   }
@@ -382,7 +390,7 @@ export async function handleUpload(req: AuthRequest, res: Response, next: NextFu
         const parentId = folderId ? await resolveParentRemoteId(req.user!.id, folderId, ctx, provider, account.id) : null
         const startedAt = Date.now()
         const uploaded = await provider.upload(ctx, { stream: fs.createReadStream(spoolPath), fileName, mimeType: meta.mimeType, sizeBytes: meta.sizeBytes, parentId })
-        const file = await prisma.$transaction(async (tx) => {
+        const file = await recordWithCompensation(provider, ctx, uploaded.remoteId, () => prisma.$transaction(async (tx) => {
           const created = await tx.file.create({ data: { userId: req.user!.id, connectedAccountId: account.id, folderId, provider: provider.id, providerFileId: uploaded.remoteId, name: fileName, mimeType: meta.mimeType, sizeBytes: meta.sizeBytes, remoteParentId: parentId } })
           await tx.uploadSession.update({ where: { id: session.id }, data: { status: 'completed', completedAt: new Date() } })
           openSessionId = null
@@ -400,7 +408,7 @@ export async function handleUpload(req: AuthRequest, res: Response, next: NextFu
             },
           })
           return created
-        })
+        }), (outcome) => logUpload('database write failed after remote upload', { sessionId: session.id, accountId: account.id, outcome }))
         completed.push(replayPayload(file))
         await createAuditLog(req.user!.id, 'UPLOAD_FILE', 'file', file.id, { name: file.name, size: file.sizeBytes.toString() })
         logUpload('database file created', { sessionId: session.id, fileId: file.id, accountId: account.id })
@@ -645,7 +653,7 @@ async function finalizeResumable(userId: string, session: UploadSession, spoolPa
   const parentId = session.folderId ? await resolveParentRemoteId(userId, session.folderId, ctx, provider, account.id) : null
   const startedAt = Date.now()
   const uploaded = await provider.upload(ctx, { stream: fs.createReadStream(spoolPath), fileName: session.fileName, mimeType: session.mimeType, sizeBytes: session.sizeBytes, parentId })
-  const file = await prisma.$transaction(async (tx) => {
+  const file = await recordWithCompensation(provider, ctx, uploaded.remoteId, () => prisma.$transaction(async (tx) => {
     const created = await tx.file.create({
       data: {
         userId,
@@ -674,7 +682,7 @@ async function finalizeResumable(userId: string, session: UploadSession, spoolPa
       }
     })
     return created
-  })
+  }), (outcome) => logUpload('database write failed after remote upload', { sessionId: session.id, accountId: account.id, outcome }))
   await createAuditLog(userId, 'UPLOAD_FILE', 'file', file.id, { name: file.name, size: file.sizeBytes.toString() })
   logUpload('resumable upload completed', { sessionId: session.id, fileId: file.id, accountId: account.id })
   void refreshQuota(account.id).catch((error) => logUpload('quota refresh failed', { accountId: account.id, message: errorText(error) }))

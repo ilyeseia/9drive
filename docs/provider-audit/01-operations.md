@@ -47,14 +47,25 @@ GROUP BY user_id, lower(email) HAVING count(*) > 1;
 
 Credentials are AES-256-GCM encrypted with a key derived from `TOKEN_ENCRYPTION_KEY`. Since Step 4 a stored value that
 cannot be decrypted raises `ERR_INTERNAL` instead of silently looking like a missing token, so a wrong or rotated key
-is visible immediately. **There is no key-rotation tool**: changing `TOKEN_ENCRYPTION_KEY` makes existing credentials
-unreadable until a re-encryption job (decrypt with the old key, encrypt with the new) is written and run. That job is
-not part of this audit; do not rotate the key without it.
+is visible immediately. Changing `TOKEN_ENCRYPTION_KEY` makes existing credentials
+unreadable until they are re-encrypted. Use the bundled tool (provider configs, connected-account tokens, S3 keys,
+webhook secrets; `v1:` prefix preserved; idempotent and resumable; dry run by default):
+
+```bash
+OLD_TOKEN_ENCRYPTION_KEY=<old> NEW_TOKEN_ENCRYPTION_KEY=<new> npm run credentials:reencrypt
+OLD_TOKEN_ENCRYPTION_KEY=<old> NEW_TOKEN_ENCRYPTION_KEY=<new> npm run credentials:reencrypt -- --apply
+```
+
+Procedure: back up the database; run the dry run and require `totalUndecryptable: 0`; stop the backend and worker; run
+with `--apply`; switch `TOKEN_ENCRYPTION_KEY` to the new value; start; verify with `GET /providers/diagnostics`. Keys are
+read from the environment only and never printed. Tested against a real database (dry run writes nothing, apply is
+idempotent, rollback by swapping the keys); it has **not** been run against a production-sized dataset, and other
+tables that may hold secrets in free-form JSON (`metadata`) are not covered.
 
 ## Known limits (not changed)
 
 - Concurrent token refreshes are de-duplicated inside one backend process and protected across processes by
   compare-and-set writes; two processes may still each call the token endpoint once.
-- A remote object stays behind if its upload succeeds but the database transaction fails.
+- If the database write fails after a successful remote upload, a best-effort permanent delete of the remote object is attempted (logged as `database write failed after remote upload`); if that delete also fails the object stays behind and only the log shows it.
 - No automatic fall-back to a second account when the chosen provider fails an upload.
 - Real Google, TeraBox and S3 endpoints were not exercised (no credentials available).

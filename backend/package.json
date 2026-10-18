@@ -14,6 +14,7 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "db:migrate:deploy": "prisma migrate deploy",
+    "credentials:reencrypt": "tsx src/scripts/reencrypt-credentials.ts",
     "seed:google-config": "tsx src/scripts/seed-google-config.ts",
     "seed:google-config:docker": "tsx src/scripts/seed-google-config-if-present.ts",
     "seed:dropbox-config:docker": "tsx src/scripts/seed-dropbox-config-if-present.ts",
