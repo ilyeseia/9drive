@@ -16,6 +16,7 @@ import { publicApiRouter } from './modules/public-api/public-api.routes.js'
 import { auditLogRouter } from './modules/audit-logs/audit-log.routes.js'
 import { systemRouter } from './modules/system/system.routes.js'
 import { providerRouter } from './modules/providers/provider.routes.js'
+import { aiRouter } from './modules/ai/ai.routes.js'
 import { dashboardRouter } from './modules/dashboard/dashboard.routes.js'
 import { jobsRouter } from './modules/jobs/jobs.routes.js'
 import { routingRouter } from './modules/routing/routing.routes.js'
@@ -47,6 +48,7 @@ app.use('/invites', inviteRouter)
 app.use('/audit-logs', auditLogRouter)
 app.use('/system', systemRouter)
 app.use('/providers', providerRouter)
+app.use('/ai', aiRouter)
 app.use('/dashboard', dashboardRouter)
 app.use('/jobs', jobsRouter)
 app.use('/routing', routingRouter)

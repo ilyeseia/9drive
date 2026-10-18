@@ -31,6 +31,10 @@ model User {
   workspaceInvitesSent WorkspaceInvite[] @relation("WorkspaceInvitesSent")
   uploadRoutingPolicy UploadRoutingPolicy?
   apiKeys        ApiKey[]
+  aiConversations AiConversation[]
+  aiTasks        AiTask[]
+  aiConfirmations AiActionConfirmation[]
+  aiUsage        AiUsageRecord[]
 
   @@map("users")
 }
@@ -505,4 +509,127 @@ model WebhookDelivery {
 
   @@index([subscriptionId, status, nextAttemptAt])
   @@map("webhook_deliveries")
+}
+
+// --- AI assistant (docs/ai-agent-architecture.md) -----------------------------------
+// Stores user-visible conversation text, structured tool calls/results (already scrubbed of
+// secrets) and task bookkeeping. No hidden reasoning, tokens or file contents.
+
+model AiConversation {
+  id        String      @id @default(uuid()) @db.Uuid
+  userId    String      @map("user_id") @db.Uuid
+  title     String      @default("") @db.VarChar(191)
+  locale    String      @default("en") @db.VarChar(8)
+  createdAt DateTime    @default(now()) @map("created_at")
+  updatedAt DateTime    @updatedAt @map("updated_at")
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages  AiMessage[]
+  tasks     AiTask[]
+
+  @@index([userId, updatedAt])
+  @@map("ai_conversations")
+}
+
+model AiMessage {
+  id             String         @id @default(uuid()) @db.Uuid
+  conversationId String         @map("conversation_id") @db.Uuid
+  seq            Int
+  role           String         @db.VarChar(16)
+  content        String         @db.Text
+  toolCalls      Json?          @map("tool_calls")
+  toolCallId     String?        @map("tool_call_id") @db.VarChar(128)
+  taskId         String?        @map("task_id") @db.Uuid
+  createdAt      DateTime       @default(now()) @map("created_at")
+  conversation   AiConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@unique([conversationId, seq])
+  @@index([taskId])
+  @@map("ai_messages")
+}
+
+model AiTask {
+  id             String             @id @default(uuid()) @db.Uuid
+  conversationId String             @map("conversation_id") @db.Uuid
+  userId         String             @map("user_id") @db.Uuid
+  status         String             @db.VarChar(32)
+  plan           String?            @db.Text
+  stepCount      Int                @default(0) @map("step_count")
+  toolCallCount  Int                @default(0) @map("tool_call_count")
+  provider       String?            @db.VarChar(32)
+  model          String?            @db.VarChar(128)
+  error          String?            @db.Text
+  pending        Json?
+  createdAt      DateTime           @default(now()) @map("created_at")
+  updatedAt      DateTime           @updatedAt @map("updated_at")
+  finishedAt     DateTime?          @map("finished_at")
+  conversation   AiConversation     @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user           User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  executions     AiToolExecution[]
+  confirmations  AiActionConfirmation[]
+
+  @@index([userId, status])
+  @@index([conversationId, createdAt])
+  @@map("ai_tasks")
+}
+
+model AiToolExecution {
+  id             String   @id @default(uuid()) @db.Uuid
+  taskId         String   @map("task_id") @db.Uuid
+  userId         String   @map("user_id") @db.Uuid
+  toolName       String   @map("tool_name") @db.VarChar(64)
+  toolCallId     String   @map("tool_call_id") @db.VarChar(128)
+  args           Json
+  status         String   @db.VarChar(24)
+  summary        String?  @db.Text
+  verification   String?  @db.Text
+  /// Shown to the user only; never sent to the model (e.g. a freshly created share URL).
+  userOutput     Json?    @map("user_output")
+  errorCode      String?  @map("error_code") @db.VarChar(64)
+  idempotencyKey String?  @map("idempotency_key") @db.VarChar(128)
+  confirmationId String?  @map("confirmation_id") @db.Uuid
+  latencyMs      Int?     @map("latency_ms")
+  createdAt      DateTime @default(now()) @map("created_at")
+  task           AiTask   @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, toolCallId])
+  @@index([userId, createdAt])
+  @@map("ai_tool_executions")
+}
+
+model AiActionConfirmation {
+  id         String    @id @default(uuid()) @db.Uuid
+  userId     String    @map("user_id") @db.Uuid
+  taskId     String    @map("task_id") @db.Uuid
+  toolName   String    @map("tool_name") @db.VarChar(64)
+  toolCallId String    @map("tool_call_id") @db.VarChar(128)
+  args       Json
+  argsHash   String    @map("args_hash") @db.VarChar(64)
+  summary    String    @db.Text
+  preview    Json?
+  risk       String    @db.VarChar(8)
+  status     String    @db.VarChar(16)
+  expiresAt  DateTime  @map("expires_at")
+  decidedAt  DateTime? @map("decided_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  task       AiTask    @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, toolCallId])
+  @@index([userId, status])
+  @@map("ai_action_confirmations")
+}
+
+model AiUsageRecord {
+  id           String   @id @default(uuid()) @db.Uuid
+  userId       String   @map("user_id") @db.Uuid
+  taskId       String?  @map("task_id") @db.Uuid
+  provider     String   @db.VarChar(32)
+  model        String   @db.VarChar(128)
+  inputTokens  Int      @map("input_tokens")
+  outputTokens Int      @map("output_tokens")
+  createdAt    DateTime @default(now()) @map("created_at")
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@map("ai_usage_records")
 }

@@ -2,6 +2,7 @@ import { app } from './app.js'
 import { env } from './config/env.js'
 import { prisma } from './config/prisma.js'
 import { closeRateLimitStore } from './middleware/rate-limit.middleware.js'
+import { initAiAssistant } from './modules/ai/runtime.js'
 import { seedProviderCapabilities } from './providers/registry.js'
 
 let shuttingDown = false
@@ -25,6 +26,10 @@ void seedProviderCapabilities()
   .catch((error: unknown) => {
     console.error('Provider capability seeding failed', (error as Error).message)
   })
+
+void initAiAssistant().catch((error: unknown) => {
+  console.error('AI assistant initialisation failed', (error as Error).message)
+})
 
 app.listen(env.APP_PORT, () => {
   console.log(`Backend running on http://localhost:${env.APP_PORT}`)
