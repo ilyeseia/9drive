@@ -174,3 +174,50 @@ export function mergeMessages(current: ChatMessage[], incoming: ChatMessage[]): 
   for (const message of incoming) bySeq.set(message.seq, message)
   return [...bySeq.values()].sort((a, b) => a.seq - b.seq)
 }
+
+export interface AdminOverview {
+  config: {
+    enabled: boolean
+    reason: string | null
+    provider: string | null
+    model: string | null
+    baseUrlHost: string | null
+    keyConfigured: boolean
+    limits: Record<string, number | null>
+  }
+  toolCount: number
+  windowDays: number
+  usage: {
+    inputTokens: number
+    outputTokens: number
+    requests: number
+    byDay: Array<{ day: string; inputTokens: number; outputTokens: number }>
+    byModel: Array<{ provider: string; model: string; inputTokens: number; outputTokens: number; requests: number }>
+  }
+  tasksByStatus: Record<string, number>
+  tools: Array<{ tool: string; succeeded: number; failed: number; rejected: number; avgLatencyMs: number | null }>
+  activeTasks: number
+  recentTasks: Array<{
+    id: string
+    userId: string
+    status: TaskStatus
+    stepCount: number
+    toolCallCount: number
+    provider: string | null
+    model: string | null
+    error: string | null
+    createdAt: string
+    finishedAt: string | null
+  }>
+}
+
+export type AdminTestResult = { ok: true; latencyMs: number; model: string } | { ok: false; latencyMs: number; code: string }
+
+/** Admin-only endpoints; the server answers 403 to everyone else. */
+export const assistantAdminApi = {
+  overview: () => apiFetch<AdminOverview>('/ai/admin/overview'),
+  test: () => apiFetch<AdminTestResult>('/ai/admin/test', json({})),
+  cancelTask: (taskId: string) => apiFetch<{ task: TaskDto }>(`/ai/admin/tasks/${taskId}/cancel`, json({})),
+}
+
+export const isActiveStatus = (status: TaskStatus): boolean => !isFinished(status)

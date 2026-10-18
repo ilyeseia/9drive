@@ -12,6 +12,16 @@ import {
   type TaskRecord,
 } from './store.js';
 
+interface UsageRow {
+  userId: string;
+  tokens: number;
+  at: Date;
+  provider: string;
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+}
+
 export function createMemoryStore(now: () => Date = () => new Date()): AgentStore & {
   data: {
     conversations: Map<string, ConversationRecord>;
@@ -19,7 +29,7 @@ export function createMemoryStore(now: () => Date = () => new Date()): AgentStor
     tasks: Map<string, TaskRecord>;
     executions: ExecutionRecord[];
     confirmations: Map<string, ConfirmationRecord>;
-    usage: Array<{ userId: string; tokens: number; at: Date }>;
+    usage: UsageRow[];
   };
 } {
   const data = {
@@ -28,7 +38,7 @@ export function createMemoryStore(now: () => Date = () => new Date()): AgentStor
     tasks: new Map<string, TaskRecord>(),
     executions: [] as ExecutionRecord[],
     confirmations: new Map<string, ConfirmationRecord>(),
-    usage: [] as Array<{ userId: string; tokens: number; at: Date }>,
+    usage: [] as UsageRow[],
   };
   const clone = <T>(value: T): T => structuredClone(value);
 
@@ -206,7 +216,65 @@ export function createMemoryStore(now: () => Date = () => new Date()): AgentStor
       return removed;
     },
     async recordUsage(entry) {
-      data.usage.push({ userId: entry.userId, tokens: entry.inputTokens + entry.outputTokens, at: now() });
+      data.usage.push({
+        userId: entry.userId,
+        tokens: entry.inputTokens + entry.outputTokens,
+        at: now(),
+        provider: entry.provider,
+        model: entry.model,
+        inputTokens: entry.inputTokens,
+        outputTokens: entry.outputTokens,
+      });
+    },
+    async adminOverview(since, windowDays, recentLimit) {
+      const usage = data.usage.filter((u) => u.at >= since);
+      const byDay = new Map<string, { inputTokens: number; outputTokens: number }>();
+      const byModel = new Map<string, { provider: string; model: string; inputTokens: number; outputTokens: number; requests: number }>();
+      for (const u of usage) {
+        const day = u.at.toISOString().slice(0, 10);
+        const d = byDay.get(day) ?? { inputTokens: 0, outputTokens: 0 };
+        d.inputTokens += u.inputTokens;
+        d.outputTokens += u.outputTokens;
+        byDay.set(day, d);
+        const key = `${u.provider}|${u.model}`;
+        const m = byModel.get(key) ?? { provider: u.provider, model: u.model, inputTokens: 0, outputTokens: 0, requests: 0 };
+        m.inputTokens += u.inputTokens;
+        m.outputTokens += u.outputTokens;
+        m.requests += 1;
+        byModel.set(key, m);
+      }
+      const tasks = [...data.tasks.values()].filter((t) => t.createdAt >= since);
+      const tasksByStatus: Record<string, number> = {};
+      for (const t of tasks) tasksByStatus[t.status] = (tasksByStatus[t.status] ?? 0) + 1;
+      const taskIds = new Set(tasks.map((t) => t.id));
+      const tools = new Map<string, { tool: string; succeeded: number; failed: number; rejected: number; latencies: number[] }>();
+      for (const e of data.executions.filter((x) => taskIds.has(x.taskId))) {
+        const row = tools.get(e.toolName) ?? { tool: e.toolName, succeeded: 0, failed: 0, rejected: 0, latencies: [] };
+        if (e.status === 'SUCCEEDED') row.succeeded += 1;
+        else if (e.status === 'FAILED') row.failed += 1;
+        else if (e.status === 'REJECTED') row.rejected += 1;
+        if (e.latencyMs !== null) row.latencies.push(e.latencyMs);
+        tools.set(e.toolName, row);
+      }
+      return {
+        windowDays,
+        usage: {
+          inputTokens: usage.reduce((n, u) => n + u.inputTokens, 0),
+          outputTokens: usage.reduce((n, u) => n + u.outputTokens, 0),
+          requests: usage.length,
+          byDay: [...byDay.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([day, v]) => ({ day, ...v })),
+          byModel: [...byModel.values()].sort((a, b) => b.inputTokens + b.outputTokens - (a.inputTokens + a.outputTokens)),
+        },
+        tasksByStatus,
+        tools: [...tools.values()]
+          .sort((a, b) => b.succeeded + b.failed + b.rejected - (a.succeeded + a.failed + a.rejected))
+          .map(({ latencies, ...rest }) => ({ ...rest, avgLatencyMs: latencies.length ? Math.round(latencies.reduce((n, v) => n + v, 0) / latencies.length) : null })),
+        activeTasks: [...data.tasks.values()].filter((t) => !TERMINAL_STATUSES.has(t.status)).length,
+        recentTasks: tasks
+          .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+          .slice(0, recentLimit)
+          .map(({ id, userId, status, stepCount, toolCallCount, provider, model, error, createdAt, finishedAt }) => clone({ id, userId, status, stepCount, toolCallCount, provider, model, error, createdAt, finishedAt })),
+      };
     },
     async tokensSince(userId, since) {
       return data.usage.filter((u) => u.userId === userId && u.at >= since).reduce((sum, u) => sum + u.tokens, 0);

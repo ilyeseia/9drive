@@ -103,7 +103,26 @@ export interface ConfirmationRecord {
   createdAt: Date;
 }
 
+/** Cross-user aggregates for the admin console. Contains ids and counts only — never message text. */
+export interface AdminOverview {
+  windowDays: number;
+  usage: {
+    inputTokens: number;
+    outputTokens: number;
+    requests: number;
+    byDay: Array<{ day: string; inputTokens: number; outputTokens: number }>;
+    byModel: Array<{ provider: string; model: string; inputTokens: number; outputTokens: number; requests: number }>;
+  };
+  tasksByStatus: Record<string, number>;
+  tools: Array<{ tool: string; succeeded: number; failed: number; rejected: number; avgLatencyMs: number | null }>;
+  activeTasks: number;
+  recentTasks: Array<Pick<TaskRecord, 'id' | 'userId' | 'status' | 'stepCount' | 'toolCallCount' | 'provider' | 'model' | 'error' | 'createdAt' | 'finishedAt'>>;
+}
+
 export interface AgentStore {
+  /** Admin-only: aggregates across all users since `since`. */
+  adminOverview(since: Date, windowDays: number, recentLimit: number): Promise<AdminOverview>;
+
   createConversation(userId: string, locale: string, title: string): Promise<ConversationRecord>;
   getConversation(userId: string, id: string): Promise<ConversationRecord | null>;
   listConversations(userId: string, limit: number): Promise<ConversationRecord[]>;

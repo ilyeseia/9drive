@@ -44,6 +44,7 @@ const menu = [
   { label: 'All Files', icon: FileArchive, href: '/all-files' },
   { label: 'Providers', icon: Cloud, href: '/providers' },
   { label: 'AI Assistant', icon: Bot, href: '/assistant' },
+  { label: 'AI Manager', icon: ShieldCheck, href: '/ai-manager' },
   { label: 'Quota Tracker', icon: Gauge, href: '/quota' },
   { label: 'Jobs', icon: ListChecks, href: '/jobs' },
   { label: 'Shared With Me', icon: Share2, href: '/shared' },

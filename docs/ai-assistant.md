@@ -149,6 +149,18 @@ expires. Idempotency: a tool-call id is executed at most once per task. Long ope
 
 Read-only quick actions on the page keep working when the model is down.
 
+## 8b. Admin console (AI Manager)
+
+Page **AI Manager** (`/ai-manager`, admins only; the API answers 403 to everyone else via `requireRole('admin')`).
+Shows the active provider/model/endpoint *host* and whether a key is set (never the key or full URL), the
+effective limits (read-only: they are the `AI_*` environment variables), 7-day token usage by model, tasks
+by status, per-tool success/failure/latency, and recent tasks across users (user id prefix, status, counts —
+no message text or tool arguments). Actions: **Test connection** (one tiny tool-less model request) and
+**Stop** on any running task. Endpoints: `GET /ai/admin/overview`, `POST /ai/admin/test`,
+`POST /ai/admin/tasks/:id/cancel` (audited as `AI_ADMIN_TEST` / `AI_ADMIN_CANCEL_TASK`).
+Changing the provider, model or key is deliberately **not** possible from the UI: they live in the backend
+environment and need a restart.
+
 ## 9. Verification status
 
 | Area | Status |

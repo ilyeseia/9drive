@@ -332,6 +332,61 @@ export function createPrismaStore(): AgentStore {
       await prisma.aiUsageRecord.deleteMany({ where: { createdAt: { lt: usageBefore } } });
       return result.count;
     },
+    async adminOverview(since, windowDays, recentLimit) {
+      const [usageRows, statusGroups, execGroups, latencyGroups, active, recent] = await Promise.all([
+        prisma.aiUsageRecord.findMany({ where: { createdAt: { gte: since } }, select: { provider: true, model: true, inputTokens: true, outputTokens: true, createdAt: true } }),
+        prisma.aiTask.groupBy({ by: ['status'], where: { createdAt: { gte: since } }, _count: { _all: true } }),
+        prisma.aiToolExecution.groupBy({ by: ['toolName', 'status'], where: { createdAt: { gte: since } }, _count: { _all: true } }),
+        prisma.aiToolExecution.groupBy({ by: ['toolName'], where: { createdAt: { gte: since }, latencyMs: { not: null } }, _avg: { latencyMs: true } }),
+        prisma.aiTask.count({ where: { status: { notIn: [...TERMINAL_STATUSES] } } }),
+        prisma.aiTask.findMany({ where: { createdAt: { gte: since } }, orderBy: { createdAt: 'desc' }, take: recentLimit }),
+      ]);
+      const byDay = new Map<string, { inputTokens: number; outputTokens: number }>();
+      const byModel = new Map<string, { provider: string; model: string; inputTokens: number; outputTokens: number; requests: number }>();
+      for (const u of usageRows) {
+        const day = u.createdAt.toISOString().slice(0, 10);
+        const d = byDay.get(day) ?? { inputTokens: 0, outputTokens: 0 };
+        d.inputTokens += u.inputTokens;
+        d.outputTokens += u.outputTokens;
+        byDay.set(day, d);
+        const key = `${u.provider}|${u.model}`;
+        const m = byModel.get(key) ?? { provider: u.provider, model: u.model, inputTokens: 0, outputTokens: 0, requests: 0 };
+        m.inputTokens += u.inputTokens;
+        m.outputTokens += u.outputTokens;
+        m.requests += 1;
+        byModel.set(key, m);
+      }
+      const tools = new Map<string, { tool: string; succeeded: number; failed: number; rejected: number; avgLatencyMs: number | null }>();
+      for (const g of execGroups) {
+        const row = tools.get(g.toolName) ?? { tool: g.toolName, succeeded: 0, failed: 0, rejected: 0, avgLatencyMs: null };
+        if (g.status === 'SUCCEEDED') row.succeeded += g._count._all;
+        else if (g.status === 'FAILED') row.failed += g._count._all;
+        else if (g.status === 'REJECTED') row.rejected += g._count._all;
+        tools.set(g.toolName, row);
+      }
+      for (const g of latencyGroups) {
+        const row = tools.get(g.toolName);
+        if (row && g._avg.latencyMs !== null) row.avgLatencyMs = Math.round(g._avg.latencyMs);
+      }
+      const tasksByStatus: Record<string, number> = {};
+      for (const g of statusGroups) tasksByStatus[g.status] = g._count._all;
+      return {
+        windowDays,
+        usage: {
+          inputTokens: usageRows.reduce((n, u) => n + u.inputTokens, 0),
+          outputTokens: usageRows.reduce((n, u) => n + u.outputTokens, 0),
+          requests: usageRows.length,
+          byDay: [...byDay.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([day, v]) => ({ day, ...v })),
+          byModel: [...byModel.values()].sort((a, b) => b.inputTokens + b.outputTokens - (a.inputTokens + a.outputTokens)),
+        },
+        tasksByStatus,
+        tools: [...tools.values()].sort((a, b) => b.succeeded + b.failed + b.rejected - (a.succeeded + a.failed + a.rejected)),
+        activeTasks: active,
+        recentTasks: recent.map(toTask).map(({ id, userId, status, stepCount, toolCallCount, provider, model, error, createdAt, finishedAt }) => ({
+          id, userId, status, stepCount, toolCallCount, provider, model, error, createdAt, finishedAt,
+        })),
+      };
+    },
     async recordUsage(entry) {
       await prisma.aiUsageRecord.create({ data: entry });
     },

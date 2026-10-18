@@ -4,6 +4,7 @@ import { DriveLayout } from '@/layouts/DriveLayout'
 import { AllFilesPage } from '@/pages/AllFilesPage'
 import { ArchivedPage } from '@/pages/ArchivedPage'
 import { AssistantPage } from '@/pages/AssistantPage'
+import { AiManagerPage } from '@/pages/AiManagerPage'
 import { DashboardPage } from '@/pages/DashboardPage'
 import { LoginPage } from '@/pages/LoginPage'
 import { GoogleAuthPage } from '@/pages/GoogleAuthPage'
@@ -41,6 +42,7 @@ function App() {
           <Route path="all-files" element={<AllFilesPage />} />
           <Route path="providers" element={<ProvidersPage />} />
           <Route path="assistant" element={<AssistantPage />} />
+          <Route path="ai-manager" element={<AiManagerPage />} />
           <Route path="jobs" element={<JobsPage />} />
           <Route path="quota" element={<QuotaTrackerPage />} />
           <Route path="shared" element={<SharedPage />} />

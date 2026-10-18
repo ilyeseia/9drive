@@ -139,6 +139,42 @@ export function publicAiStatus(config: AiConfig): {
   };
 }
 
+/** Admin-console view: never the key or the full endpoint — only whether they are set and the host. */
+export function adminAiConfig(config: AiConfig) {
+  let baseUrlHost: string | null = null;
+  if (config.baseUrl) {
+    try {
+      baseUrlHost = new URL(config.baseUrl).host;
+    } catch {
+      baseUrlHost = null;
+    }
+  }
+  return {
+    enabled: config.enabled,
+    reason: config.reason,
+    provider: config.provider,
+    model: config.model,
+    baseUrlHost,
+    keyConfigured: config.apiKey !== null,
+    limits: {
+      requestTimeoutMs: config.requestTimeoutMs,
+      maxOutputTokens: config.maxOutputTokens,
+      maxRetries: config.maxRetries,
+      maxSteps: config.maxSteps,
+      maxToolCalls: config.maxToolCalls,
+      taskTimeoutMs: config.taskTimeoutMs,
+      maxConcurrentTasksPerUser: config.maxConcurrentTasksPerUser,
+      maxConcurrentTasks: config.maxConcurrentTasks,
+      dailyTokenLimit: config.dailyTokenLimit,
+      confirmationTtlSeconds: config.confirmationTtlSeconds,
+      historyMaxMessages: config.historyMaxMessages,
+      maxBatch: config.maxBatch,
+      maxResults: config.maxResults,
+      retentionDays: config.retentionDays,
+    },
+  };
+}
+
 let cached: AiConfig | null = null;
 
 export function getAiConfig(): AiConfig {

@@ -6,11 +6,12 @@
 import type { NextFunction, Request, Response } from 'express';
 import { Router } from 'express';
 import { z } from 'zod';
-import { requireAuth, type AuthRequest } from '../../middleware/auth.middleware.js';
+import { requireAuth, requireRole, type AuthRequest } from '../../middleware/auth.middleware.js';
 import { aiMessageLimiter, aiReadLimiter, aiToolRunLimiter } from '../../middleware/rate-limit.middleware.js';
 import { createAuditLog } from '../../utils/audit.js';
 import { AgentError } from './agent.js';
-import { getAiConfig, publicAiStatus } from './config.js';
+import { adminAiConfig, getAiConfig, publicAiStatus } from './config.js';
+import { createModelProvider, ModelError } from './providers/index.js';
 import { requiresConfirmation } from './policy.js';
 import { cleanText, toModelJson } from './sanitize.js';
 import { getAgent, getAgentStore, getToolRegistry } from './runtime.js';
@@ -87,6 +88,74 @@ const visible = (message: MessageRecord) => (message.role === 'user' || (message
 aiRouter.get('/status', aiReadLimiter, (_req: AuthRequest, res) => {
   const registry = getToolRegistry();
   res.json({ ...publicAiStatus(getAiConfig()), tools: registry.all().length, locales: LOCALES });
+});
+
+/**
+ * Admin console. Requires the `admin` role (re-checked against the database by requireRole).
+ * Exposes aggregates and ids only — never message text, tool arguments, keys or endpoints.
+ */
+const ADMIN_WINDOW_DAYS = 7;
+
+aiRouter.get('/admin/overview', aiReadLimiter, requireRole('admin'), async (_req: AuthRequest, res, next) => {
+  try {
+    const since = new Date(Date.now() - ADMIN_WINDOW_DAYS * 86_400_000);
+    const overview = await getAgentStore().adminOverview(since, ADMIN_WINDOW_DAYS, 25);
+    res.json({
+      config: adminAiConfig(getAiConfig()),
+      toolCount: getToolRegistry().all().length,
+      ...overview,
+      recentTasks: overview.recentTasks.map((t) => ({
+        id: t.id,
+        userId: t.userId,
+        status: t.status,
+        stepCount: t.stepCount,
+        toolCallCount: t.toolCallCount,
+        provider: t.provider,
+        model: t.model,
+        error: t.error ? cleanText(t.error, 300) : null,
+        createdAt: t.createdAt.toISOString(),
+        finishedAt: t.finishedAt?.toISOString() ?? null,
+      })),
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/** Sends one tiny, tool-less request to the configured model to prove the key/endpoint/model work. */
+aiRouter.post('/admin/test', aiToolRunLimiter, requireRole('admin'), async (req: AuthRequest, res, next) => {
+  const config = getAiConfig();
+  if (!config.enabled) return res.status(409).json({ code: 'AI_DISABLED', message: config.reason ?? 'The AI assistant is not configured.' });
+  const started = Date.now();
+  try {
+    const provider = createModelProvider(config);
+    const response = await provider.complete({
+      system: 'Reply with the single word: ok',
+      messages: [{ role: 'user', content: 'ping' }],
+      tools: [],
+      maxOutputTokens: 16,
+    });
+    await createAuditLog(req.user!.id, 'AI_ADMIN_TEST', 'ai_provider', config.provider ?? 'unknown');
+    return res.json({ ok: true, latencyMs: Date.now() - started, model: provider.model, tokens: response.usage });
+  } catch (error) {
+    if (ModelError.is(error)) return res.status(200).json({ ok: false, latencyMs: Date.now() - started, code: error.code });
+    return next(error);
+  }
+});
+
+/** Lets an admin stop any user's running task (e.g. a runaway request). Audited. */
+aiRouter.post('/admin/tasks/:id/cancel', aiReadLimiter, requireRole('admin'), async (req: AuthRequest, res, next) => {
+  try {
+    const id = idParam.safeParse(req.params.id);
+    if (!id.success) return res.status(404).json({ code: 'NOT_FOUND', message: 'Task not found.' });
+    const task = await getAgentStore().getTask(id.data);
+    if (!task) return res.status(404).json({ code: 'NOT_FOUND', message: 'Task not found.' });
+    const cancelled = await getAgent().cancel(task.userId, task.id);
+    await createAuditLog(req.user!.id, 'AI_ADMIN_CANCEL_TASK', 'ai_task', task.id);
+    return res.json({ task: taskDto(cancelled) });
+  } catch (error) {
+    return fail(res, next, error);
+  }
 });
 
 aiRouter.get('/capabilities', aiReadLimiter, (_req: AuthRequest, res) => {

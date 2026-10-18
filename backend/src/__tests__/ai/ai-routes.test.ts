@@ -3,7 +3,7 @@ import express from 'express';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 
-const rt = vi.hoisted(() => ({ agent: null as any, store: null as any, registry: null as any, config: null as any }));
+const rt = vi.hoisted(() => ({ agent: null as any, store: null as any, registry: null as any, config: null as any, testProvider: null as any }));
 
 vi.mock('../../middleware/auth.middleware.js', () => ({
   requireAuth: (req: any, res: any, next: any) => {
@@ -12,6 +12,13 @@ vi.mock('../../middleware/auth.middleware.js', () => ({
     req.user = { id: user, sessionId: 's' };
     return next();
   },
+  // Test users whose id starts with "admin" hold the admin role.
+  requireRole: () => (req: any, res: any, next: any) =>
+    String(req.user?.id).startsWith('admin') ? next() : res.status(403).json({ code: 'FORBIDDEN', message: 'Insufficient permissions.' }),
+}));
+vi.mock('../../modules/ai/providers/index.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../modules/ai/providers/index.js')>()),
+  createModelProvider: () => rt.testProvider,
 }));
 vi.mock('../../middleware/rate-limit.middleware.js', () => {
   const pass = (_req: any, _res: any, next: any) => next();
@@ -119,6 +126,7 @@ describe('authentication', () => {
       ['GET', `/conversations/${ID}`], ['DELETE', `/conversations/${ID}`], ['POST', `/conversations/${ID}/messages`],
       ['GET', `/tasks/${ID}`], ['POST', `/tasks/${ID}/cancel`], ['POST', `/confirmations/${ID}/approve`],
       ['POST', `/confirmations/${ID}/reject`], ['POST', '/tools/list_things/run'],
+      ['GET', '/admin/overview'], ['POST', '/admin/test'], ['POST', `/admin/tasks/${ID}/cancel`],
     ];
     for (const [method, path] of routes) {
       const res = await api(method, path, { body: {} });
@@ -271,5 +279,53 @@ describe('direct (degraded-mode) tool runs', () => {
     expect((await api('POST', '/tools/format_disk/run', { user: 'u1', body: {} })).status).toBe(404);
     expect((await api('POST', '/tools/list_things/run', { user: 'u1', body: { args: { extra: 1 } } })).status).toBe(200);
     expect((await api('POST', '/tools/trash_things/run', { user: 'u1', body: { args: { ids: [] } } })).status).toBe(400);
+  });
+});
+
+describe('admin console', () => {
+  it('is forbidden to non-admin users', async () => {
+    expect((await api('GET', '/admin/overview', { user: 'alice' })).status).toBe(403);
+    expect((await api('POST', '/admin/test', { user: 'alice', body: {} })).status).toBe(403);
+    expect((await api('POST', `/admin/tasks/${ID}/cancel`, { user: 'alice', body: {} })).status).toBe(403);
+  });
+
+  it('returns aggregates and config without leaking the key, endpoint or message text', async () => {
+    const created = await api('POST', '/conversations', { user: 'alice', body: { locale: 'en' } });
+    const sent = await api('POST', `/conversations/${created.body.conversation.id}/messages`, { user: 'alice', body: { text: 'private question about taxes', locale: 'en' } });
+    await until(() => api('GET', `/tasks/${sent.body.task.id}`, { user: 'alice' }), (r) => r.body.task.status === 'AWAITING_CONFIRMATION');
+    const res = await api('GET', '/admin/overview', { user: 'admin-1' });
+    expect(res.status).toBe(200);
+    expect(res.body.config).toMatchObject({ enabled: true, provider: 'openai_compatible', keyConfigured: true });
+    expect(res.body.tasksByStatus.AWAITING_CONFIRMATION).toBe(1);
+    expect(res.body.activeTasks).toBe(1);
+    expect(res.body.recentTasks[0]).toMatchObject({ userId: 'alice', status: 'AWAITING_CONFIRMATION' });
+    expect(res.text).not.toContain('sk-super-secret-key-123456');
+    expect(res.text).not.toContain('private question about taxes');
+  });
+
+  it('reports a successful and a failed model test without exposing details', async () => {
+    rt.testProvider = { id: 'p', model: 'm', complete: async () => say('ok') };
+    const ok = await api('POST', '/admin/test', { user: 'admin-1', body: {} });
+    expect(ok.body).toMatchObject({ ok: true, model: 'm' });
+    const { ModelError } = await import('../../modules/ai/providers/types.js');
+    rt.testProvider = { id: 'p', model: 'm', complete: async () => { throw new ModelError('MODEL_AUTH', 'bad key sk-super-secret-key-123456'); } };
+    const bad = await api('POST', '/admin/test', { user: 'admin-1', body: {} });
+    expect(bad.body).toMatchObject({ ok: false, code: 'MODEL_AUTH' });
+    expect(bad.text).not.toContain('sk-super-secret');
+  });
+
+  it('refuses the test when the assistant is disabled', async () => {
+    resetState(() => say('x'), false);
+    expect((await api('POST', '/admin/test', { user: 'admin-1', body: {} })).status).toBe(409);
+  });
+
+  it("lets an admin cancel another user's task", async () => {
+    const created = await api('POST', '/conversations', { user: 'alice', body: { locale: 'en' } });
+    const sent = await api('POST', `/conversations/${created.body.conversation.id}/messages`, { user: 'alice', body: { text: 'trash', locale: 'en' } });
+    await until(() => api('GET', `/tasks/${sent.body.task.id}`, { user: 'alice' }), (r) => r.body.task.status === 'AWAITING_CONFIRMATION');
+    const res = await api('POST', `/admin/tasks/${sent.body.task.id}/cancel`, { user: 'admin-1', body: {} });
+    expect(res.status).toBe(200);
+    expect(res.body.task.status).toBe('CANCELLED');
+    expect((await api('POST', `/admin/tasks/${ID}/cancel`, { user: 'admin-1', body: {} })).status).toBe(404);
   });
 });
