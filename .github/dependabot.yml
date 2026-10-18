@@ -5,6 +5,17 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
-    groups:
-      expo-sdk:
-        patterns: ['expo*', 'react-native*', '@expo/*']
+    ignore:
+      # Versions of these are pinned by the Expo SDK; they change only through `npx expo install --fix` on an SDK upgrade
+      # (CI's expo-doctor rejects any other version).
+      - dependency-name: 'expo*'
+      - dependency-name: 'react'
+      - dependency-name: 'react-native*'
+      - dependency-name: '@react-native-*'
+      - dependency-name: '@expo/*'
+      - dependency-name: 'jest-expo'
+      - dependency-name: 'react-native-screens'
+      - dependency-name: 'react-native-safe-area-context'
+      # Major bumps of the toolchain need the Expo toolchain to support them first; review manually.
+      - dependency-name: '*'
+        update-types: ['version-update:semver-major']
