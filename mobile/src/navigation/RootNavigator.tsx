@@ -5,6 +5,7 @@ import { useTheme } from '../theme/theme';
 import { SettingsScreen } from '../features/settings/SettingsScreen';
 import { PlaceholderScreen } from '../features/PlaceholderScreen';
 import { FilesStack } from './FilesStack';
+import { StorageStack } from './StorageStack';
 
 export type TabParamList = {
   Files: undefined;
@@ -40,7 +41,7 @@ export function RootNavigator() {
         <Tab.Screen
           name="Storage"
           options={{ title: t('tabStorage'), tabBarAccessibilityLabel: t('tabStorage') }}
-          component={PlaceholderScreen}
+          component={StorageStack}
         />
         <Tab.Screen
           name="Assistant"
