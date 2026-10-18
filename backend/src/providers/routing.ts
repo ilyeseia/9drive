@@ -161,11 +161,12 @@ function chain(
   };
 }
 
+/** Unknown capacity is NOT free space: accounts with known room rank first, unknown ones after them. */
 const byMostAvailable = (a: Candidate, b: Candidate): number => {
   const left = availableOf(a);
   const right = availableOf(b);
-  if (left === null && right !== null) return -1;
-  if (right === null && left !== null) return 1;
+  if (left === null && right !== null) return 1;
+  if (right === null && left !== null) return -1;
   if (left !== null && right !== null) return -compareBigint(left, right);
   return 0;
 };
@@ -330,16 +331,19 @@ async function finalizeSelection(
 ): Promise<Candidate | null> {
   if (rows.length === 0) return null;
   if (mode !== 'round_robin') return rows[0];
-  const cursor = Number.isFinite(policy.roundRobinCursor) ? policy.roundRobinCursor : 0;
-  const index = ((cursor % rows.length) + rows.length) % rows.length;
+  let cursor = Number.isFinite(policy.roundRobinCursor) ? policy.roundRobinCursor : 0;
   try {
-    await prisma.uploadRoutingPolicy.update({
+    // Atomic increment: concurrent uploads each receive a distinct cursor value (no read-modify-write race).
+    const advanced = await prisma.uploadRoutingPolicy.update({
       where: { id: policy.id },
-      data: { roundRobinCursor: cursor + 1 },
+      data: { roundRobinCursor: { increment: 1 } },
+      select: { roundRobinCursor: true },
     });
+    cursor = advanced.roundRobinCursor - 1;
   } catch (err) {
     console.error('[routing] failed to advance round-robin cursor', err instanceof Error ? err.message : err);
   }
+  const index = ((cursor % rows.length) + rows.length) % rows.length;
   return rows[index];
 }
 
@@ -375,7 +379,7 @@ export async function selectAccount(input: {
     const accounts = await prisma.connectedAccount.findMany({
       where: {
         userId: input.userId,
-        status: 'connected',
+        status: { in: ['connected', 'degraded'] },
         ...(targetAccountId ? { id: targetAccountId } : {}),
       },
       include: { storageAccount: true },

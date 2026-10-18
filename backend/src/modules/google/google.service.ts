@@ -1,7 +1,8 @@
 import { google } from 'googleapis'
 import type { ConnectedAccount, ProviderConfig } from '@prisma/client'
 import { prisma } from '../../config/prisma.js'
-import { decryptText, encryptText } from '../../utils/crypto.js'
+import { buildContext } from '../../providers/context.js'
+import { decryptText } from '../../utils/crypto.js'
 
 const googleDriveFolderMimeType = 'application/vnd.google-apps.folder'
 const appFolderName = '9drive'
@@ -10,32 +11,21 @@ export function createOAuthClient(config: ProviderConfig) {
   return new google.auth.OAuth2(decryptText(config.clientIdEncrypted), decryptText(config.clientSecretEncrypted), config.redirectUri)
 }
 
+/**
+ * Authenticated Google client for legacy call sites. Token refresh is NOT done here: it goes through
+ * `buildContext` (the single decrypt/refresh choke point) so legacy and adapter paths share error classification,
+ * single-flight refresh and compare-and-set persistence. The client gets no refresh token on purpose, so the
+ * library can never refresh (and rotate) tokens behind our back.
+ */
 export async function getAuthedGoogleClient(account: ConnectedAccount) {
-  if (!account.accessTokenEncrypted || !account.refreshTokenEncrypted || !account.tokenExpiresAt) throw new Error('Google account tokens are missing.')
-  if (!account.providerConfigId) throw new Error('Google provider config is missing.')
-  const config = await prisma.providerConfig.findUniqueOrThrow({ where: { id: account.providerConfigId } })
-  const client = createOAuthClient(config)
+  const context = await buildContext(account.id)
+  const credentials = context.credentials
+  if (credentials.kind !== 'oauth2') throw new Error('Google account has no OAuth credentials.')
+  const client = new google.auth.OAuth2(credentials.clientId, credentials.clientSecret, credentials.redirectUri)
   client.setCredentials({
-    access_token: decryptText(account.accessTokenEncrypted),
-    refresh_token: decryptText(account.refreshTokenEncrypted),
-    expiry_date: account.tokenExpiresAt.getTime(),
+    access_token: credentials.accessToken,
+    ...(credentials.expiresAt !== null ? { expiry_date: credentials.expiresAt } : {}),
   })
-
-  if (account.tokenExpiresAt.getTime() < Date.now() + 60_000) {
-    const result = await client.refreshAccessToken()
-    const credentials = result.credentials
-    if (credentials.access_token) {
-      await prisma.connectedAccount.update({
-        where: { id: account.id },
-        data: {
-          accessTokenEncrypted: encryptText(credentials.access_token),
-          tokenExpiresAt: new Date(credentials.expiry_date ?? Date.now() + 3600_000),
-        },
-      })
-      client.setCredentials(credentials)
-    }
-  }
-
   return client
 }
 

@@ -114,6 +114,9 @@ connectedAccountRouter.get('/google/callback', async (req, res, next) => {
     const query = z.object({ code: z.string(), state: z.string() }).parse(req.query)
     const oauthState = await prisma.oauthState.findUniqueOrThrow({ where: { stateHash: hashToken(query.state) }, include: { providerConfig: true } })
     if (oauthState.usedAt || oauthState.expiresAt < new Date()) return res.status(400).json({ code: 'GOOGLE_OAUTH_STATE_INVALID', message: 'OAuth state expired.' })
+    // Atomic single use: concurrent/replayed callbacks lose this compare-and-set and stop here.
+    const consumed = await prisma.oauthState.updateMany({ where: { id: oauthState.id, usedAt: null }, data: { usedAt: new Date() } })
+    if (consumed.count !== 1) return res.status(400).json({ code: 'GOOGLE_OAUTH_STATE_INVALID', message: 'OAuth state already used.' })
     const client = createOAuthClient(oauthState.providerConfig)
     const tokenResult = await client.getToken(query.code)
     const tokens = tokenResult.tokens
@@ -206,8 +209,8 @@ connectedAccountRouter.get('/google/callback', async (req, res, next) => {
         status: 'connected',
       },
     })
-    await prisma.oauthState.update({ where: { id: oauthState.id }, data: { usedAt: new Date() } })
-    await syncGoogleQuota(account.id)
+    // The account is connected at this point; a quota hiccup must not turn a successful connect into an error page.
+    await syncGoogleQuota(account.id).catch((error) => console.error('Google quota sync after connect failed:', error instanceof Error ? error.message : 'unknown error'))
     return res.redirect(`${env.FRONTEND_URL}/google-connected?status=success`)
   } catch (error) {
     console.error('Google OAuth callback failed:', error)

@@ -12,13 +12,26 @@ vi.mock('../../../config/prisma.js', () => ({
     uploadRoutingPolicy: {
       upsert: async () => state.policy,
       update: async ({ data }: { data: Record<string, unknown> }) => {
-        state.policy = { ...state.policy, ...data };
+        const next: Record<string, unknown> = { ...state.policy };
+        for (const [key, value] of Object.entries(data)) {
+          // Prisma atomic operation: { increment: n }
+          next[key] =
+            value && typeof value === 'object' && 'increment' in value
+              ? Number(next[key] ?? 0) + Number((value as { increment: number }).increment)
+              : value;
+        }
+        state.policy = next as typeof state.policy;
         return state.policy;
       },
     },
     connectedAccount: {
-      findMany: async ({ where }: { where: { userId: string; status: string; id?: string } }) =>
-        state.accounts.filter((a) => a.userId === where.userId && a.status === where.status && (!where.id || a.id === where.id)),
+      findMany: async ({ where }: { where: { userId: string; status: string | { in: string[] }; id?: string } }) =>
+        state.accounts.filter(
+          (a) =>
+            a.userId === where.userId &&
+            (typeof where.status === 'string' ? a.status === where.status : where.status.in.includes(a.status)) &&
+            (!where.id || a.id === where.id),
+        ),
     },
     providerHealth: { findMany: async () => state.health },
     folder: { findFirst: async () => null },

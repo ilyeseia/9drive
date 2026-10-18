@@ -25,6 +25,23 @@ function serializeFolder(folder: { id: string; name: string; color: string; icon
   return { ...folder, providerFolderId: folder.providerFolderId ?? null, createdAt: folder.createdAt.toISOString(), updatedAt: folder.updatedAt.toISOString() }
 }
 
+/**
+ * Picks the Google Drive account that hosts a new/healed folder. A sub-folder stays on its parent's account;
+ * otherwise the choice is deterministic (oldest connected account) instead of whichever row the database returns.
+ */
+export async function pickGoogleAccount(userId: string, preferredAccountId?: string | null) {
+  if (preferredAccountId) {
+    const preferred = await prisma.connectedAccount.findFirst({
+      where: { id: preferredAccountId, userId, provider: 'google_drive', status: 'connected' },
+    })
+    if (preferred) return preferred
+  }
+  return prisma.connectedAccount.findFirst({
+    where: { userId, provider: 'google_drive', status: 'connected' },
+    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+  })
+}
+
 async function ensureProviderFolderIds(
   folders: Array<{ id: string; name: string; parentId: string | null; providerFolderId: string | null }>,
   userId: string
@@ -32,9 +49,7 @@ async function ensureProviderFolderIds(
   const foldersWithoutId = folders.filter((f) => !f.providerFolderId)
   if (foldersWithoutId.length === 0) return
 
-  const connectedAccount = await prisma.connectedAccount.findFirst({
-    where: { userId, provider: 'google_drive', status: 'connected' }
-  })
+  const connectedAccount = await pickGoogleAccount(userId)
   if (!connectedAccount) return
 
   try {
@@ -121,9 +136,7 @@ folderRouter.post('/', async (req: AuthRequest, res, next) => {
       })
     }
 
-    const connectedAccount = await prisma.connectedAccount.findFirst({
-      where: { userId: req.user!.id, provider: 'google_drive', status: 'connected' }
-    })
+    const connectedAccount = await pickGoogleAccount(req.user!.id, parentFolder?.connectedAccountId)
 
     let providerFolderId: string | null = null
     if (connectedAccount) {

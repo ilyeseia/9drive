@@ -121,3 +121,19 @@ Verification (each provider-related test file run on a fresh DB, 42 files + rout
 | F11 | Inline OAuth credentials update an existing configuration only when the client id is identical; a different client id creates a separate `ProviderConfig`, so existing accounts keep their client. | test (original config untouched; same client reused). **Confirmed-and-fixed.** |
 | F10 | Disconnect now clears access/refresh tokens for every provider and blanks + disables S3 keys. Provider-side token revocation is **not** implemented (adapters expose no revoke capability; TeraBox documents none). | test. **Partially fixed** (local credential removal). |
 | F21 | Re-assessed: `apiSecret` from the refresh column is a deliberate TeraBox feature; the failing test had a fixture with a default refresh token. Test fixed and a positive `apiSecret` test added. Not a product defect. | `context.test.ts`. **Reclassified: test defect, fixed.** |
+
+## 8. Step 5 results — routing, legacy Google path, uploads
+
+| Finding | Change | Evidence |
+|---|---|---|
+| F12a | In `most_available` (and the modes that fall back to it) an account with **unknown** capacity now ranks after accounts with known room. It is still eligible (unknown ≠ zero), just never preferred. | `routing-legacy.test.ts`. **Confirmed-and-fixed.** |
+| F12b | Round-robin cursor advanced with an atomic `increment`; each concurrent selection gets a distinct position (3 parallel picks → 3 distinct accounts, cursor 3). | test. **Confirmed-and-fixed** (cursor is per user policy; with cross-account health exclusion the pick is `cursor mod eligible`). |
+| F12c | Routing now accepts `connected` and `degraded` accounts; accounts needing re-authorisation remain excluded (explained through the existing rejection diagnostics). | covered by existing routing tests. **Fixed.** |
+| F7 | `pickGoogleAccount`: sub-folders stay on their parent's Google account; otherwise the oldest connected account (deterministic) — used by folder creation and self-healing. | test. **Confirmed-and-fixed** for folder creation. Other legacy file operations already carry the file's own `connectedAccountId`. |
+| F6 | `getAuthedGoogleClient` no longer has its own refresh: it takes tokens from `buildContext` (classification, single-flight, CAS) and gives the Google client **no refresh token**, so the library cannot rotate tokens behind our back. The 22 call sites are unchanged. | test: two parallel legacy calls on an expired account → one token request, tokens persisted. **Confirmed-and-fixed** (the legacy *connect* callback still uses the library for the code exchange and profile, which is a one-time flow). |
+| F3/F5 (legacy callback) | Legacy `/google/callback` consumes the state atomically before exchanging the code, and a quota-sync failure no longer turns a successful connect into an error page. | type-checked; route-level test **not run here** (needs the full app, see environment limits). |
+| F18 | When `provider.upload` fails after the session row exists, the session is now marked `failed` (it stayed `uploading` forever). | type-checked; route test **not run here**. **Fixed, not test-verified.** |
+
+Still open from F18 (**Confirmed-not-fixed**): if the remote upload succeeds but the database transaction fails, the remote object is left behind (no compensating delete); there is no automatic fall-back to a second account on provider failure (the client retries and routing is re-evaluated). Both are design decisions to confirm with the owner, not silent changes.
+
+Verification: 51 related files, each on a fresh DB. All pass except four API-level suites that need the full app/Redis ≥ 5 and cannot run in this environment (`api/files` 401 from the local auth harness, `api/routing` PATCH policy UUID error, `api/migration` and `api/replication` fail at BullMQ with Redis 3.0.504). None of them touch code changed in Steps 3-5 except through the shared imports, which type-check.

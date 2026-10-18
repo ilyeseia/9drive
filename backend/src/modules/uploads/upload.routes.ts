@@ -290,6 +290,7 @@ export async function handleUpload(req: AuthRequest, res: Response, next: NextFu
       const fileName = meta?.fileName || info.filename
       let spoolPath: string | null = null
       let reservedAccountId: string | null = null
+      let openSessionId: string | null = null
       try {
         if (responded) {
           fileStream.resume()
@@ -358,6 +359,7 @@ export async function handleUpload(req: AuthRequest, res: Response, next: NextFu
         }
 
         const session = await prisma.uploadSession.create({ data: { userId: req.user!.id, targetConnectedAccountId: account.id, folderId, fileName, mimeType: meta.mimeType, sizeBytes: meta.sizeBytes, status: 'uploading' } })
+        openSessionId = session.id
         logUpload('file upload started', { sessionId: session.id, accountId: account.id, fileName, sizeBytes: meta.sizeBytes.toString() })
 
         const spool = await spoolToFile(fileStream)
@@ -383,6 +385,7 @@ export async function handleUpload(req: AuthRequest, res: Response, next: NextFu
         const file = await prisma.$transaction(async (tx) => {
           const created = await tx.file.create({ data: { userId: req.user!.id, connectedAccountId: account.id, folderId, provider: provider.id, providerFileId: uploaded.remoteId, name: fileName, mimeType: meta.mimeType, sizeBytes: meta.sizeBytes, remoteParentId: parentId } })
           await tx.uploadSession.update({ where: { id: session.id }, data: { status: 'completed', completedAt: new Date() } })
+          openSessionId = null
           await tx.storageOperation.create({
             data: {
               userId: req.user!.id,
@@ -404,6 +407,12 @@ export async function handleUpload(req: AuthRequest, res: Response, next: NextFu
         void refreshQuota(account.id).catch((error) => logUpload('quota refresh failed', { accountId: account.id, message: errorText(error) }))
       } catch (error) {
         fileStream.resume()
+        // A failed provider call must not leave the session reported as "uploading" forever.
+        if (openSessionId) {
+          await prisma.uploadSession
+            .updateMany({ where: { id: openSessionId, status: 'uploading' }, data: { status: 'failed', errorMessage: errorText(error).slice(0, 500) } })
+            .catch(() => undefined)
+        }
         const payload = routeFailure(error)
         logUpload('file upload failed', { fileName, code: payload.code, message: errorText(error) })
         failed.push({ fieldName, fileName, code: payload.code, message: payload.message })
