@@ -6,6 +6,7 @@ import { LOCALES, LOCALE_NAMES } from '../../i18n/messages';
 import { useTheme, spacing, type ThemeMode } from '../../theme/theme';
 import { loadConfig, isConfigError } from '../../config/env';
 import { isolate } from '../../i18n/format';
+import { AccountSection } from './AccountSection';
 
 const MODES: { mode: ThemeMode; key: 'themeSystem' | 'themeLight' | 'themeDark' }[] = [
   { mode: 'system', key: 'themeSystem' },
@@ -32,6 +33,8 @@ export function SettingsScreen() {
         <AppText variant="title" accessibilityRole="header">
           {t('settingsTitle')}
         </AppText>
+
+        <AccountSection />
 
         <Card style={{ gap: spacing.md }}>
           <AppText variant="heading">{t('language')}</AppText>

@@ -22,7 +22,8 @@ export interface AuthHooks {
   getAccessToken(): Promise<string | null>;
   /**
    * Called once after a 401. Must be single-flight (see `SessionManager`): the server revokes the whole
-   * session when a rotated refresh token is presented twice. Returns the new access token or null.
+   * session when a rotated refresh token is presented twice. Returns the new access token, or null when the session can no longer be renewed.
+   * May throw an ApiError for a transient failure (offline): the session is then kept.
    */
   refreshAccessToken(rejectedToken: string | null): Promise<string | null>;
   onSessionLost(reason: 'expired' | 'disabled'): void;
@@ -131,7 +132,14 @@ export class ApiClient {
           // A 401 is produced before any handler runs, so repeating the request after a refresh is safe
           // for every method.
           refreshed = true;
-          const next = await this.auth!.refreshAccessToken(token);
+          let next: string | null;
+          try {
+            next = await this.auth!.refreshAccessToken(token);
+          } catch (refreshError) {
+            // A transient failure while renewing (offline, timeout) is not proof the session is dead: report it as
+            // such and keep the session so the user can simply retry.
+            throw ApiError.is(refreshError) ? refreshError : error;
+          }
           if (next) {
             token = next;
             continue;

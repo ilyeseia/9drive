@@ -22,7 +22,10 @@
       },
       "predictiveBackGestureEnabled": false,
       "package": "app.ninedrive.mobile",
-      "blockedPermissions": ["android.permission.RECORD_AUDIO", "android.permission.READ_PHONE_STATE"]
+      "blockedPermissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.READ_PHONE_STATE"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -34,13 +37,26 @@
         {
           "supportsRTL": true,
           "supportedLocales": {
-            "ios": ["en", "ar", "fr"],
-            "android": ["en", "ar", "fr"]
+            "ios": [
+              "en",
+              "ar",
+              "fr"
+            ],
+            "android": [
+              "en",
+              "ar",
+              "fr"
+            ]
           }
+        }
+      ],
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Allow 9Drive to use Face ID to unlock the app on this device."
         }
       ]
     ],
-    "scheme": "ninedrive",
-    "newArchEnabled": true
+    "scheme": "ninedrive"
   }
 }
