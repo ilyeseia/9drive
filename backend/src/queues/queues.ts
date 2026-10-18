@@ -59,6 +59,8 @@ export interface JobTypeDefinition<T extends JobType = JobType> {
 
 const DEFAULT_LOCK_DURATION_MS = 60_000
 const LONG_LOCK_DURATION_MS = 300_000
+// Maintenance jobs (quota refresh / health check) fan out over every connected account.
+const MAINTENANCE_LOCK_DURATION_MS = 600_000
 
 export const JOB_DEFINITIONS = {
   UPLOAD: {
@@ -144,7 +146,7 @@ export const JOB_DEFINITIONS = {
     priority: 20,
     maxAttempts: DEFAULT_MAX_ATTEMPTS,
     backoff: DEFAULT_BACKOFF,
-    lockDurationMs: 600_000,
+    lockDurationMs: MAINTENANCE_LOCK_DURATION_MS,
     concurrencyEnvKey: 'WORKER_CONCURRENCY_MAINTENANCE',
     jobIdStrategy: 'mirror-row-id',
     payloadSchema: jobPayloadSchemas.QUOTA_REFRESH,
@@ -156,7 +158,7 @@ export const JOB_DEFINITIONS = {
     priority: 21,
     maxAttempts: DEFAULT_MAX_ATTEMPTS,
     backoff: DEFAULT_BACKOFF,
-    lockDurationMs: 600_000,
+    lockDurationMs: MAINTENANCE_LOCK_DURATION_MS,
     concurrencyEnvKey: 'WORKER_CONCURRENCY_MAINTENANCE',
     jobIdStrategy: 'mirror-row-id',
     payloadSchema: jobPayloadSchemas.HEALTH_CHECK,
@@ -168,7 +170,7 @@ export const JOB_DEFINITIONS = {
     priority: 22,
     maxAttempts: DEFAULT_MAX_ATTEMPTS,
     backoff: DEFAULT_BACKOFF,
-    lockDurationMs: DEFAULT_LOCK_DURATION_MS,
+    lockDurationMs: MAINTENANCE_LOCK_DURATION_MS,
     concurrencyEnvKey: 'WORKER_CONCURRENCY_MAINTENANCE',
     jobIdStrategy: 'mirror-row-id',
     payloadSchema: jobPayloadSchemas.CLEANUP,
@@ -215,7 +217,7 @@ export const QUEUE_DEFINITIONS: Record<QueueName, QueueDefinition> = {
     name: 'maintenance',
     jobTypes: ['QUOTA_REFRESH', 'HEALTH_CHECK', 'CLEANUP'],
     concurrencyEnvKey: 'WORKER_CONCURRENCY_MAINTENANCE',
-    lockDurationMs: DEFAULT_LOCK_DURATION_MS,
+    lockDurationMs: MAINTENANCE_LOCK_DURATION_MS,
   },
   replication: {
     name: 'replication',
