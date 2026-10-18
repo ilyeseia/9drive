@@ -1,3 +1,4 @@
+import { currentRequestId } from '../utils/request-context.js'
 import { serializeBigInt } from '../utils/serialize.js'
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error'
@@ -24,7 +25,8 @@ function write(
   fields?: Record<string, unknown>,
 ): void {
   if (LEVEL_ORDER[level] < minLevel()) return
-  const record = { time: new Date().toISOString(), level, msg: message, ...bindings, ...fields }
+  const requestId = currentRequestId()
+  const record = { time: new Date().toISOString(), level, msg: message, ...(requestId ? { requestId } : {}), ...bindings, ...fields }
   const line = JSON.stringify(serializeBigInt(record))
   if (level === 'warn' || level === 'error') console.error(line)
   else console.log(line)

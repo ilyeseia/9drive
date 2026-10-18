@@ -22,6 +22,7 @@ import {
   s3ConnectSchema,
   toProviderAccountView,
 } from './account-service.js'
+import { buildProviderDiagnostics } from './diagnostics.js'
 import { connectUrlInputSchema, connectRedirectUrl, createConnectUrl, handleConnectCallback } from './connect-flow.js'
 import { resolveRouteError, RequestError } from './http-error.js'
 import { pollTeraBoxDeviceFlow, startTeraBoxDeviceFlow } from './terabox-device-flow.js'
@@ -50,7 +51,16 @@ providerRouter.get('/catalog', (_req: Request, res: Response) => res.json(catalo
 
 providerRouter.get('/', requireAuth, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    return res.json(jsonSafe(await listProviderAccountViews(req.user!.id)))
+    const page = z.object({ limit: z.coerce.number().int().min(1).max(500).optional(), offset: z.coerce.number().int().min(0).optional() }).parse(req.query)
+    return res.json(jsonSafe(await listProviderAccountViews(req.user!.id, page)))
+  } catch (error) {
+    return replyError(res, next, error)
+  }
+})
+
+providerRouter.get('/diagnostics', requireAuth, async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    return res.json(jsonSafe(await buildProviderDiagnostics(req.user!.id)))
   } catch (error) {
     return replyError(res, next, error)
   }

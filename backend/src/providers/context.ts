@@ -270,10 +270,18 @@ async function resolveOAuthCredentialsUnshared(
         refreshed = peer;
         adoptedPeerRefresh = true;
       } else if (ProviderError.is(err) && TRANSIENT_REFRESH_CODES.has(err.code)) {
+        createLogger({ component: 'provider.context', accountId: account.id, provider: account.provider }).warn(
+          'oauth refresh failed (transient)',
+          { code: err.code, upstreamStatus: err.upstreamStatus },
+        );
         // Outage/throttling: keep the account connected, record why, and surface the transient error.
         await recordTransientFailure(account.id, errorText(err));
         throw err;
       } else {
+        createLogger({ component: 'provider.context', accountId: account.id, provider: account.provider }).warn(
+          'oauth refresh failed (reauthorization required)',
+          { code: ProviderError.is(err) ? err.code : 'ERR_UNKNOWN', upstreamStatus: ProviderError.is(err) ? err.upstreamStatus : undefined },
+        );
         await markAuthFailure(account, errorText(err));
         throw new ProviderError('ERR_AUTH_EXPIRED', `OAuth token refresh failed for provider '${account.provider}'`, {
           cause: err,

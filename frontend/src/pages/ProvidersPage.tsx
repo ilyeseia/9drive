@@ -16,6 +16,9 @@ type ProviderEntry = {
   email?: string
   status?: string
   lastError?: string | null
+  lifecycle?: string | null
+  needsReauthorization?: boolean
+  hasTransientIssue?: boolean
   capabilities?: string[]
   quota?: StorageQuota | null
   health?: { state?: string; checkedAt?: string } | null
@@ -39,6 +42,8 @@ type ProviderRow = {
   displayName?: string | null
   status: string
   lastError: string | null
+  needsReauthorization: boolean
+  hasTransientIssue: boolean
   capabilities: string[]
   usedBytes: string | null
   totalBytes: string | null
@@ -59,6 +64,8 @@ function fromProviderEntry(entry: ProviderEntry): ProviderRow {
     displayName: entry.displayName ?? null,
     status: entry.status ?? 'connected',
     lastError: entry.lastError ?? null,
+    needsReauthorization: entry.needsReauthorization ?? entry.status === 'unauthorized',
+    hasTransientIssue: entry.hasTransientIssue ?? false,
     capabilities: entry.capabilities ?? [],
     usedBytes: entry.quota?.usedBytes ?? null,
     totalBytes: entry.quota?.totalBytes ?? null,
@@ -80,6 +87,8 @@ function fromAccount(account: ConnectedAccount): ProviderRow {
     displayName: account.displayName ?? null,
     status: account.status,
     lastError: null,
+    needsReauthorization: account.status === 'unauthorized',
+    hasTransientIssue: false,
     capabilities: [],
     usedBytes: account.storageAccount?.usedBytes ?? null,
     totalBytes: account.storageAccount?.totalBytes ?? null,
@@ -97,6 +106,10 @@ const statusStyles: Record<string, string> = {
   connected: 'bg-emerald-50 text-emerald-700',
   degraded: 'bg-amber-50 text-amber-700',
   unauthorized: 'bg-red-50 text-red-700',
+  reauthorization_required: 'bg-red-50 text-red-700',
+  temporarily_unavailable: 'bg-amber-50 text-amber-700',
+  disabled: 'bg-slate-100 text-slate-500',
+  error: 'bg-red-50 text-red-700',
   disconnected: 'bg-slate-100 text-slate-500',
 }
 
@@ -502,12 +515,17 @@ export function ProvidersPage() {
                       <p className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-slate-500">
                         <span>{providerLabel(row.provider)}</span>
                         {row.experimental ? <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-bold text-amber-700">Experimental</span> : null}
-                        <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-bold capitalize', statusClass)}>{row.status}</span>
+                        <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-bold capitalize', statusClass)}>{row.needsReauthorization ? 'Needs re-authorization' : row.status.replace(/_/g, ' ')}</span>
                         <span className="flex items-center gap-1 capitalize"><span className={cn('h-2 w-2 rounded-full', healthColor)} />{row.healthState ?? 'no health data'}</span>
                       </p>
-                      {row.status === 'unauthorized' && row.lastError ? (
+                      {row.needsReauthorization && row.lastError ? (
                         <p className="mt-1 truncate text-[11px] font-medium text-rose-500" title={row.lastError}>
                           {row.lastError}
+                        </p>
+                      ) : null}
+                      {row.hasTransientIssue && row.lastError ? (
+                        <p className="mt-1 truncate text-[11px] font-medium text-amber-600" title={row.lastError}>
+                          Temporary provider problem (no action needed): {row.lastError}
                         </p>
                       ) : null}
                       {row.capabilities.length > 0 ? (

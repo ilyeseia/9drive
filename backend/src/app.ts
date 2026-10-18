@@ -24,10 +24,12 @@ import { webhookRouter } from './modules/webhooks/webhook.routes.js'
 import { replicationRouter } from './modules/replication/replication.routes.js'
 import { migrationRouter } from './modules/migration/migration.routes.js'
 import { noStoreHeaders, securityStack } from './middleware/security.middleware.js'
+import { requestIdMiddleware } from './middleware/request-id.middleware.js'
 
 export const app = express()
 app.set('trust proxy', env.TRUST_PROXY_HOPS)
 
+app.use(requestIdMiddleware)
 app.use(cors({ origin: env.FRONTEND_URL }))
 app.use(securityStack)
 app.use(noStoreHeaders)

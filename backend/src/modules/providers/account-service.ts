@@ -7,6 +7,7 @@ import type { ConnectedAccount, ProviderHealth, StorageAccount } from '@prisma/c
 import { z } from 'zod'
 import { prisma } from '../../config/prisma.js'
 import { catalog, ProviderError, registry } from '../../providers/index.js'
+import { describeAccountState, type AccountState } from '../../providers/lifecycle.js'
 import { teraboxPassportLogin } from '../../providers/terabox/login.js'
 import type { AuthMode, Capability } from '../../providers/types.js'
 import { encryptText, hashToken, randomToken } from '../../utils/crypto.js'
@@ -70,6 +71,12 @@ export interface ProviderAccountView {
   displayName: string | null
   email: string
   status: string
+  /** Explicit lifecycle state derived from `status` (legacy names mapped), or null if unrecognised. */
+  lifecycle: AccountState | null
+  needsReauthorization: boolean
+  /** Connected, but the last provider call failed for a non-credential reason (outage, throttling). */
+  hasTransientIssue: boolean
+  routable: boolean
   lastError: string | null
   authMode: AuthMode
   capabilities: Capability[]
@@ -87,12 +94,17 @@ export function toProviderAccountView(
   storageAccount: StorageAccount | null | undefined,
   health: ProviderHealth | null | undefined,
 ): ProviderAccountView {
+  const described = describeAccountState(account.status, account.lastError)
   return {
     id: account.id,
     provider: account.provider,
     displayName: account.displayName,
     email: account.email,
     status: account.status,
+    lifecycle: described.state,
+    needsReauthorization: described.needsReauthorization,
+    hasTransientIssue: described.hasTransientIssue,
+    routable: described.routable,
     lastError: account.lastError ?? null,
     authMode: authModeFor(account.provider),
     capabilities: capabilitiesFor(account.provider),
@@ -119,11 +131,21 @@ function routingFlagOf(metadata: unknown): boolean | null {
   return typeof value === 'boolean' ? value : null
 }
 
-export async function listProviderAccountViews(userId: string): Promise<ProviderAccountView[]> {
+export const MAX_ACCOUNT_PAGE_SIZE = 500
+
+export async function listProviderAccountViews(
+  userId: string,
+  page: { limit?: number; offset?: number } = {},
+): Promise<ProviderAccountView[]> {
+  const limit = Math.min(Math.max(Math.trunc(page.limit ?? MAX_ACCOUNT_PAGE_SIZE), 1), MAX_ACCOUNT_PAGE_SIZE)
+  const offset = Math.max(Math.trunc(page.offset ?? 0), 0)
   const accounts = await prisma.connectedAccount.findMany({
     where: { userId, status: { notIn: ['disconnected', 'pending'] } },
     include: { storageAccount: true },
-    orderBy: { createdAt: 'desc' },
+    // `id` as tiebreaker keeps pages stable when many accounts share a creation timestamp.
+    orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
+    take: limit,
+    skip: offset,
   })
   const ids = accounts.map((account) => account.id)
   const healthRows = ids.length > 0
@@ -140,8 +162,9 @@ export async function findOwnedAccount(userId: string, accountId: string): Promi
 
 export async function disconnectOwnedAccount(userId: string, accountId: string): Promise<boolean> {
   if (!UUID_PATTERN.test(accountId)) return false
+  // Already-disconnected accounts do not match: a second disconnect reports "not found" and does not re-run cleanup.
   const result = await prisma.connectedAccount.updateMany({
-    where: { id: accountId, userId },
+    where: { id: accountId, userId, status: { not: 'disconnected' } },
     data: { status: 'disconnected' },
   })
   if (result.count > 0) {

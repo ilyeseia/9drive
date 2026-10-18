@@ -68,6 +68,27 @@ export function isRoutable(status: string): boolean {
   return state === 'connected' || state === 'degraded';
 }
 
+export interface AccountStateDescription {
+  /** Explicit lifecycle state, or null for an unrecognised legacy value. */
+  state: AccountState | null;
+  /** The user must authorise again (revoked/expired credentials). */
+  needsReauthorization: boolean;
+  /** Connected, but the last provider call failed for a reason that is not the user's credentials. */
+  hasTransientIssue: boolean;
+  /** Whether routing may select this account at all. */
+  routable: boolean;
+}
+
+export function describeAccountState(status: string, lastError?: string | null): AccountStateDescription {
+  const state = normalizeAccountState(status);
+  return {
+    state,
+    needsReauthorization: state === 'reauthorization_required',
+    hasTransientIssue: (state === 'connected' || state === 'degraded') && Boolean(lastError),
+    routable: isRoutable(status),
+  };
+}
+
 export function isActiveState(status: string): boolean {
   const state = normalizeAccountState(status);
   return state !== null && ACTIVE.includes(state);
