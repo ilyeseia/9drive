@@ -2,6 +2,7 @@ import { type FormEvent, type ReactNode, useEffect, useState } from 'react'
 import { Outlet, useOutletContext, NavLink, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   Bell,
+  Bot,
   Braces,
   Cloud,
   FileArchive,
@@ -42,6 +43,7 @@ const menu = [
   { label: 'Dashboard', icon: LayoutDashboard, href: '/dashboard' },
   { label: 'All Files', icon: FileArchive, href: '/all-files' },
   { label: 'Providers', icon: Cloud, href: '/providers' },
+  { label: 'AI Assistant', icon: Bot, href: '/assistant' },
   { label: 'Quota Tracker', icon: Gauge, href: '/quota' },
   { label: 'Jobs', icon: ListChecks, href: '/jobs' },
   { label: 'Shared With Me', icon: Share2, href: '/shared' },

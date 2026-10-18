@@ -3,6 +3,7 @@ import { ProtectedRoute } from '@/components/auth/ProtectedRoute'
 import { DriveLayout } from '@/layouts/DriveLayout'
 import { AllFilesPage } from '@/pages/AllFilesPage'
 import { ArchivedPage } from '@/pages/ArchivedPage'
+import { AssistantPage } from '@/pages/AssistantPage'
 import { DashboardPage } from '@/pages/DashboardPage'
 import { LoginPage } from '@/pages/LoginPage'
 import { GoogleAuthPage } from '@/pages/GoogleAuthPage'
@@ -39,6 +40,7 @@ function App() {
           <Route path="dashboard" element={<DashboardPage />} />
           <Route path="all-files" element={<AllFilesPage />} />
           <Route path="providers" element={<ProvidersPage />} />
+          <Route path="assistant" element={<AssistantPage />} />
           <Route path="jobs" element={<JobsPage />} />
           <Route path="quota" element={<QuotaTrackerPage />} />
           <Route path="shared" element={<SharedPage />} />
