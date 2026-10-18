@@ -137,7 +137,7 @@ aiRouter.post('/admin/test', aiToolRunLimiter, requireRole('admin'), async (req:
       tools: [],
       maxOutputTokens: 16,
     });
-    await createAuditLog(req.user!.id, 'AI_ADMIN_TEST', 'ai_provider', config.provider ?? 'unknown');
+    await createAuditLog(req.user!.id, 'AI_ADMIN_TEST', 'ai_provider', undefined, { provider: config.provider ?? 'unknown' });
     return res.json({ ok: true, latencyMs: Date.now() - started, model: provider.model, tokens: response.usage });
   } catch (error) {
     if (ModelError.is(error)) return res.status(200).json({ ok: false, latencyMs: Date.now() - started, code: error.code });
@@ -173,7 +173,7 @@ aiRouter.post('/admin/models/test', aiToolRunLimiter, requireRole('admin'), limi
   try {
     const body = createProfileSchema.extend({ existingId: z.string().uuid().optional() }).parse(req.body ?? {});
     const result = await getProfileService().testDraft(body, body.existingId);
-    await createAuditLog(req.user!.id, 'AI_MODEL_TESTED', 'ai_model_profile', body.existingId ?? 'draft', { ok: result.ok, code: result.code });
+    await createAuditLog(req.user!.id, 'AI_MODEL_TESTED', 'ai_model_profile', body.existingId, { draft: !body.existingId, ok: result.ok, code: result.code });
     res.json(result);
   } catch (error) {
     fail(res, next, error);
@@ -183,7 +183,7 @@ aiRouter.post('/admin/models/test', aiToolRunLimiter, requireRole('admin'), limi
 aiRouter.post('/admin/models/use-environment', aiReadLimiter, requireRole('admin'), async (req: AuthRequest, res, next) => {
   try {
     await getProfileService().useEnvironment();
-    await createAuditLog(req.user!.id, 'AI_MODEL_USE_ENVIRONMENT', 'ai_model_profile', 'environment');
+    await createAuditLog(req.user!.id, 'AI_MODEL_USE_ENVIRONMENT', 'ai_model_profile');
     res.json({ status: 'ok', effective: adminAiConfig(getAiConfig()) });
   } catch (error) {
     next(error);

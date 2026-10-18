@@ -237,6 +237,8 @@ export type AdminConfigView = AdminOverview['config']
 export interface ModelsResponse {
   profiles: ModelProfile[]
   activeId: string | null
+  /** Set when the stored active model cannot be used (e.g. its key can no longer be decrypted). */
+  activeProblem: 'KEY_UNREADABLE' | 'INVALID' | null
   environment: AdminConfigView
   effective: AdminConfigView
 }

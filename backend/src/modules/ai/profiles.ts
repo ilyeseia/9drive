@@ -77,7 +77,7 @@ export function createMemoryProfileStore(now: () => Date = () => new Date()): Pr
 
 export class ProfileError extends Error {
   constructor(
-    readonly code: 'INVALID_PROFILE' | 'NOT_FOUND' | 'NAME_TAKEN',
+    readonly code: 'INVALID_PROFILE' | 'NOT_FOUND' | 'NAME_TAKEN' | 'KEY_UNREADABLE',
     message: string,
     readonly status: number,
   ) {
@@ -180,11 +180,23 @@ export function createProfileService(deps: ProfileServiceDeps) {
   const probe = deps.probe ?? probeModel;
   const now = deps.now ?? (() => new Date());
 
+  /** Why the stored active profile is not in use right now (shown to admins instead of failing silently). */
+  let activeProblem: 'KEY_UNREADABLE' | 'INVALID' | null = null;
+
+  const readKey = (row: ProfileRow): string | null => {
+    if (!row.apiKeyEnc) return null;
+    try {
+      return decrypt(row.apiKeyEnc);
+    } catch {
+      throw new ProfileError('KEY_UNREADABLE', 'The saved API key can no longer be decrypted (the server encryption key changed). Edit this model and enter the key again.', 409);
+    }
+  };
+
   const overrideOf = (row: ProfileRow): ConfigOverride => ({
     provider: row.provider,
     model: row.model,
     baseUrl: row.baseUrl,
-    apiKey: row.apiKeyEnc ? decrypt(row.apiKeyEnc) : null,
+    apiKey: readKey(row),
   });
 
   async function requireRow(id: string): Promise<ProfileRow> {
@@ -201,7 +213,8 @@ export function createProfileService(deps: ProfileServiceDeps) {
   return {
     async list() {
       const rows = await store.list();
-      return { profiles: rows.map(toDto), activeId: rows.find((r) => r.isActive)?.id ?? null };
+      const activeId = rows.find((r) => r.isActive)?.id ?? null;
+      return { profiles: rows.map(toDto), activeId, activeProblem: activeId ? activeProblem : null };
     },
 
     async create(input: CreateProfileInput): Promise<ProfileDto> {
@@ -224,7 +237,7 @@ export function createProfileService(deps: ProfileServiceDeps) {
         model: input.model ?? row.model,
         baseUrl: input.baseUrl !== undefined ? input.baseUrl : row.baseUrl,
         // An omitted key keeps the stored one; an empty string clears it.
-        apiKey: input.apiKey !== undefined ? input.apiKey || null : row.apiKeyEnc ? decrypt(row.apiKeyEnc) : null,
+        apiKey: input.apiKey !== undefined ? input.apiKey || null : readKey(row),
       };
       validateOverride(next);
       if (input.name !== undefined) await assertNameFree(input.name, id);
@@ -238,14 +251,20 @@ export function createProfileService(deps: ProfileServiceDeps) {
         ...(connectionChanged ? { lastTestAt: null, lastTestOk: null, lastTestCode: null, lastTestLatencyMs: null } : {}),
       });
       if (!updated) throw new ProfileError('NOT_FOUND', 'Model not found.', 404);
-      if (updated.isActive) apply(overrideOf(updated));
+      if (updated.isActive) {
+        apply(overrideOf(updated));
+        activeProblem = null;
+      }
       return toDto(updated);
     },
 
     async remove(id: string): Promise<void> {
       const row = await requireRow(id);
       await store.delete(id);
-      if (row.isActive) apply(null);
+      if (row.isActive) {
+        apply(null);
+        activeProblem = null;
+      }
     },
 
     async activate(id: string): Promise<ProfileDto> {
@@ -254,6 +273,7 @@ export function createProfileService(deps: ProfileServiceDeps) {
       validateOverride(override);
       if (!(await store.setActive(id))) throw new ProfileError('NOT_FOUND', 'Model not found.', 404);
       apply(override);
+      activeProblem = null;
       return toDto({ ...row, isActive: true });
     },
 
@@ -261,6 +281,7 @@ export function createProfileService(deps: ProfileServiceDeps) {
     async useEnvironment(): Promise<void> {
       await store.setActive(null);
       apply(null);
+      activeProblem = null;
     },
 
     /** Tests a stored model and records the outcome. */
@@ -275,13 +296,15 @@ export function createProfileService(deps: ProfileServiceDeps) {
     async testDraft(input: CreateProfileInput, existingId?: string): Promise<ProbeResult> {
       let apiKey = input.apiKey || null;
       if (!apiKey && existingId) {
-        const row = await requireRow(existingId);
-        apiKey = row.apiKeyEnc ? decrypt(row.apiKeyEnc) : null;
+        apiKey = readKey(await requireRow(existingId));
       }
       const override: ConfigOverride = { provider: input.provider, model: input.model, baseUrl: input.baseUrl, apiKey };
       validateOverride(override);
       return probe(override);
     },
+
+    /** Why the stored active model is not in use (null when fine or none is active). */
+    problem: () => activeProblem,
 
     /** Called at boot: re-applies the active profile (if any) on top of the environment. */
     async applyActive(): Promise<ProfileRow | null> {
@@ -291,9 +314,11 @@ export function createProfileService(deps: ProfileServiceDeps) {
         const override = overrideOf(active);
         validateOverride(override);
         apply(override);
+        activeProblem = null;
         return active;
-      } catch {
-        // Undecryptable (TOKEN_ENCRYPTION_KEY changed) or no longer valid: stay on the environment.
+      } catch (error) {
+        // Undecryptable (TOKEN_ENCRYPTION_KEY changed) or no longer valid: stay on the environment, but say so.
+        activeProblem = error instanceof ProfileError && error.code === 'KEY_UNREADABLE' ? 'KEY_UNREADABLE' : 'INVALID';
         return null;
       }
     },

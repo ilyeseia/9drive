@@ -3,7 +3,7 @@ import express from 'express';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 
-const rt = vi.hoisted(() => ({ agent: null as any, store: null as any, registry: null as any, config: null as any, testProvider: null as any, profiles: null as any }));
+const rt = vi.hoisted(() => ({ agent: null as any, store: null as any, registry: null as any, config: null as any, testProvider: null as any, profiles: null as any, audits: [] as any[][] }));
 
 vi.mock('../../middleware/auth.middleware.js', () => ({
   requireAuth: (req: any, res: any, next: any) => {
@@ -24,7 +24,7 @@ vi.mock('../../middleware/rate-limit.middleware.js', () => {
   const pass = (_req: any, _res: any, next: any) => next();
   return { aiMessageLimiter: pass, aiReadLimiter: pass, aiToolRunLimiter: pass, defaultRateLimiter: pass, apiKeyRateLimiter: pass, publicTokenLimiter: pass };
 });
-vi.mock('../../utils/audit.js', () => ({ createAuditLog: async () => undefined }));
+vi.mock('../../utils/audit.js', () => ({ createAuditLog: async (...args: any[]) => void rt.audits.push(args) }));
 vi.mock('../../modules/ai/runtime.js', () => ({
   getAgent: () => rt.agent,
   getAgentStore: () => rt.store,
@@ -401,5 +401,28 @@ describe('admin model management', () => {
     expect(bad.body).toMatchObject({ ok: false, code: 'MODEL_AUTH' });
     expect(bad.text).not.toContain('bad-key');
     expect((await api('GET', '/admin/models', admin)).body.profiles).toEqual([]);
+  });
+});
+
+describe('audit trail of admin actions', () => {
+  it('only ever passes a UUID (or nothing) as the entity id — the column is a UUID', async () => {
+    rt.audits.length = 0;
+    rt.testProvider = { id: 'p', model: 'm', complete: async () => say('ok') };
+    const admin = { user: 'admin-1' };
+    const draft = { name: 'G', provider: 'openai_compatible', model: 'auto', baseUrl: 'https://llm.example.net/v1', apiKey: 'k-secret-audit' };
+    await api('POST', '/admin/test', { ...admin, body: {} });
+    await api('POST', '/admin/models/test', { ...admin, body: draft });
+    const id = (await api('POST', '/admin/models', { ...admin, body: draft })).body.profile.id;
+    await api('POST', `/admin/models/${id}/test`, { ...admin, body: {} });
+    await api('POST', `/admin/models/${id}/activate`, { ...admin, body: {} });
+    await api('POST', '/admin/models/use-environment', { ...admin, body: {} });
+    await api('PATCH', `/admin/models/${id}`, { ...admin, body: { model: 'x' } });
+    await api('DELETE', `/admin/models/${id}`, admin);
+    const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    expect(rt.audits.length).toBeGreaterThanOrEqual(8);
+    for (const [, action, , entityId] of rt.audits) {
+      expect(entityId === undefined || uuid.test(entityId), `${action} entityId=${entityId}`).toBe(true);
+    }
+    expect(JSON.stringify(rt.audits)).not.toContain('k-secret-audit');
   });
 });

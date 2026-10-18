@@ -58,8 +58,11 @@ export async function runRetention(now: Date = new Date()): Promise<number> {
 export async function initAiAssistant(log: (message: string) => void = (message) => console.log(message)): Promise<void> {
   // A model activated from the admin console wins over the AI_* environment variables.
   try {
-    const active = await getProfileService().applyActive();
+    const service = getProfileService();
+    const active = await service.applyActive();
     if (active) log(`[ai] using model profile "${active.name}" from the admin console`);
+    else if (service.problem() === 'KEY_UNREADABLE') log('[ai] WARNING: the active model profile has an API key that cannot be decrypted (TOKEN_ENCRYPTION_KEY changed?); falling back to the AI_* environment. Re-enter the key in the AI Manager.');
+    else if (service.problem() === 'INVALID') log('[ai] WARNING: the active model profile is no longer valid; falling back to the AI_* environment.');
   } catch (error) {
     log(`[ai] could not load model profiles (migration applied?): ${error instanceof Error ? error.message : 'unknown error'}`);
   }

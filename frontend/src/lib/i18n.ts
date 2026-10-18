@@ -164,6 +164,8 @@ const en = {
   mdlTestedOk: 'Last test: OK ({ms} ms)',
   mdlTestedFail: 'Last test failed ({code})',
   mdlUseEnvHint: 'Switch back to the .env settings',
+  mdlProblemKey: 'The active model’s saved key can no longer be read, so the .env settings are in use. Edit the model and enter its key again.',
+  mdlProblemInvalid: 'The active model’s settings are no longer valid, so the .env settings are in use.',
 } as const
 
 export type MessageKey = keyof typeof en
@@ -300,6 +302,8 @@ const ar: Dictionary = {
   mdlTestedOk: 'آخر اختبار: ناجح ({ms} مللي ثانية)',
   mdlTestedFail: 'فشل آخر اختبار ({code})',
   mdlUseEnvHint: 'العودة إلى إعدادات .env',
+  mdlProblemKey: 'لم يعد بالإمكان قراءة مفتاح النموذج النشط المحفوظ، لذلك تُستخدم إعدادات .env. عدّل النموذج وأدخل مفتاحه من جديد.',
+  mdlProblemInvalid: 'لم تعد إعدادات النموذج النشط صالحة، لذلك تُستخدم إعدادات .env.',
 }
 
 const fr: Dictionary = {
@@ -433,6 +437,8 @@ const fr: Dictionary = {
   mdlTestedOk: 'Dernier test : OK ({ms} ms)',
   mdlTestedFail: 'Dernier test échoué ({code})',
   mdlUseEnvHint: 'Revenir aux réglages .env',
+  mdlProblemKey: 'La clé enregistrée du modèle actif n’est plus lisible : les réglages .env sont utilisés. Modifiez le modèle et saisissez à nouveau sa clé.',
+  mdlProblemInvalid: 'Les réglages du modèle actif ne sont plus valides : les réglages .env sont utilisés.',
 }
 
 export const DICTIONARIES: Record<Locale, Dictionary> = { en, ar, fr }

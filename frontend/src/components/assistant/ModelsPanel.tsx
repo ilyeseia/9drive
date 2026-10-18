@@ -124,6 +124,12 @@ export function ModelsPanel({ onChanged }: { onChanged?: () => void }) {
         ) : null}
       </div>
 
+      {data?.activeProblem ? (
+        <p role="alert" className="rounded-xl border border-amber-200 bg-amber-50 p-2 text-xs text-amber-800">
+          {data.activeProblem === 'KEY_UNREADABLE' ? t('mdlProblemKey') : t('mdlProblemInvalid')}
+        </p>
+      ) : null}
+
       {error ? <p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-2 text-xs text-red-700">{error}</p> : null}
 
       {form ? (
@@ -180,7 +186,7 @@ export function ModelsPanel({ onChanged }: { onChanged?: () => void }) {
         {env ? (
           <li className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-slate-200 p-3">
             <div className="min-w-0 text-xs">
-              <p className="text-sm font-bold">{t('mdlEnvironment')} {envActive ? <span className="ms-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] text-emerald-800">{t('mdlActive')}</span> : null}</p>
+              <p className="text-sm font-bold">{t('mdlEnvironment')} {envActive ? <span className="ms-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] text-emerald-700">{t('mdlActive')}</span> : null}</p>
               <p className="text-slate-500">{env.enabled ? `${env.provider} · ${env.model}${env.baseUrlHost ? ` · ${env.baseUrlHost}` : ''}` : (env.reason ?? '—')}</p>
             </div>
             {!envActive ? (
@@ -196,7 +202,7 @@ export function ModelsPanel({ onChanged }: { onChanged?: () => void }) {
             <div className="min-w-0 text-xs">
               <p className="text-sm font-bold">
                 {profile.name}
-                {profile.isActive ? <span className="ms-2 rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] text-emerald-800">{t('mdlActive')}</span> : null}
+                {profile.isActive ? <span className="ms-2 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] text-emerald-700">{t('mdlActive')}</span> : null}
               </p>
               <p className="break-all text-slate-500">
                 {profile.provider} · {profile.model}{profile.baseUrl ? ` · ${new URL(profile.baseUrl).host}` : ''} · {profile.hasKey ? t('mgrKeySet') : t('mgrKeyMissing')}

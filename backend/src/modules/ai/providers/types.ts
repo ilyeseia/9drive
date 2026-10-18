@@ -59,6 +59,7 @@ export type ModelErrorCode =
   | 'MODEL_BAD_REQUEST'
   | 'MODEL_AUTH'
   | 'MODEL_NOT_FOUND'
+  | 'MODEL_NO_TOOLS'
   | 'MODEL_CANCELLED';
 
 export class ModelError extends Error {

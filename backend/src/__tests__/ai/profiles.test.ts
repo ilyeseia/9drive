@@ -131,6 +131,15 @@ describe('model profiles', () => {
     ctx.applied.length = 0;
     expect(await broken.applyActive()).toBeNull();
     expect(ctx.applied).toEqual([]);
+    // ...but not silently: the problem is reported and every action on that model explains it
+    expect(broken.problem()).toBe('KEY_UNREADABLE');
+    expect(await broken.list()).toMatchObject({ activeId: dto.id, activeProblem: 'KEY_UNREADABLE' });
+    await expect(broken.test(dto.id)).rejects.toMatchObject({ code: 'KEY_UNREADABLE', status: 409 });
+    await expect(broken.update(dto.id, { model: 'x' })).rejects.toMatchObject({ code: 'KEY_UNREADABLE' });
+    // entering the key again fixes it
+    const fixed = createProfileService({ store: ctx.store, encrypt, decrypt, apply: (o) => void ctx.applied.push(o) });
+    await fixed.applyActive();
+    expect((await fixed.list()).activeProblem).toBeNull();
   });
 });
 

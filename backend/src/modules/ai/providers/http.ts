@@ -87,6 +87,11 @@ function classify(status: number, payload: unknown, retryHeader: string | string
       retryAfterMs: retryAfterMs(retryHeader),
     });
   }
+  // Gateways and small/free models often reject the `tools` parameter outright. Say so plainly: the
+  // assistant cannot act without function calling, and "bad request" gives the admin nothing to fix.
+  if ((status === 400 || status === 422) && /\b(tools?|functions?|tool_choice)\b/i.test(detail) && /(support|unknown|unrecognized|not allowed|invalid|unexpected)/i.test(detail)) {
+    return new ModelError('MODEL_NO_TOOLS', 'The selected model does not support tool/function calling, which the assistant needs to act. Choose a model that does.');
+  }
   return new ModelError('MODEL_BAD_REQUEST', `The model provider rejected the request (HTTP ${status})${suffix}`);
 }
 

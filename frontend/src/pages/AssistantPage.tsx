@@ -1,6 +1,7 @@
 import { Fragment, useCallback, useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 import { AlertTriangle, Bot, Copy, Loader2, Menu, MessageSquare, Plus, RefreshCw, Send, Square, Trash2 } from 'lucide-react'
 import { ConfirmationCard } from '@/components/assistant/ConfirmationCard'
+import { Markdown } from '@/components/assistant/Markdown'
 import { StepList } from '@/components/assistant/StepList'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -271,7 +272,7 @@ export function AssistantPage({ pollMs = 1200 }: { pollMs?: number }) {
       <aside id="assistant-sidebar" className={cn('w-full shrink-0 lg:block lg:w-64', sidebarOpen ? 'block' : 'hidden')} aria-label={t('conversations')}>
         <Card className="flex h-full flex-col gap-2 p-3">
           <Button type="button" size="sm" onClick={resetConversation}><Plus className="h-4 w-4" aria-hidden="true" />{t('newChat')}</Button>
-          <nav className="mt-1 grid gap-1 overflow-y-auto" aria-label={t('conversations')}>
+          <nav className="mt-1 grid gap-1 overflow-y-auto overflow-x-hidden" aria-label={t('conversations')}>
             {conversations.length === 0 ? <p className="p-2 text-xs text-slate-500">{t('noConversations')}</p> : null}
             {conversations.map((c) => (
               <div key={c.id} className={cn('group flex items-center gap-1 rounded-xl', c.id === activeId ? 'bg-blue-600/10' : 'hover:bg-slate-100')}>
@@ -359,8 +360,8 @@ export function AssistantPage({ pollMs = 1200 }: { pollMs?: number }) {
               <div className={cn('flex', message.role === 'user' ? 'justify-end' : 'justify-start')}>
                 <div className={cn('max-w-[85%] rounded-2xl px-4 py-2 text-sm', message.role === 'user' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-slate-100')}>
                   <p className="mb-1 text-[11px] font-bold opacity-70">{message.role === 'user' ? t('you') : t('assistant')}</p>
-                  {/* Plain text only: assistant output is never interpreted as HTML. */}
-                  <p className="whitespace-pre-wrap break-words">{message.content}</p>
+                  {/* Rendered as React elements only: assistant output is never interpreted as HTML. */}
+                  {message.role === 'assistant' ? <Markdown text={message.content} /> : <p className="whitespace-pre-wrap break-words">{message.content}</p>}
                   {message.role === 'assistant' ? <div className="mt-1"><CopyText value={message.content} label={t('copy')} copiedLabel={t('copied')} /></div> : null}
                 </div>
               </div>

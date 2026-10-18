@@ -140,6 +140,7 @@ expires. Idempotency: a tool-call id is executed at most once per task. Long ope
 | Page says "AI assistant is not available" + reason | set the variable named in the reason and restart the backend |
 | `MODEL_AUTH` in the assistant's error message | wrong/expired `AI_API_KEY` (or wrong `AI_BASE_URL`) |
 | `MODEL_NOT_FOUND` | model id not available for that key/endpoint |
+| `MODEL_NO_TOOLS` | the selected model/gateway rejects the `tools` parameter: pick a model with function calling (the assistant cannot act without it) |
 | `MODEL_RATE_LIMITED` | provider quota; retries are bounded, try again later or raise the provider limit |
 | Assistant answers but never acts | the model has no tool-calling support; choose another model |
 | "Another request … still running or waiting" (409) | approve/decline the card or press Stop; confirmations expire after `AI_CONFIRMATION_TTL_SECONDS` |
@@ -175,12 +176,21 @@ daily token limit, ...) always come from the environment.
   no longer be decrypted: the active profile is then ignored at boot (environment is used) and must be re-entered.
 - The base URL is chosen by an administrator, so an admin can make the server call any http(s) address (including
   internal ones). Only give the admin role to people you trust with that.
+- If the active model's key cannot be decrypted at boot, the backend logs `[ai] WARNING: ...` and the Models card shows an
+  amber notice; the `.env` configuration is used until the key is entered again (edit the model, type the key, save).
 - State lives in one process: with several backend instances, restart the others (or call Use again) after a change.
 - Endpoints: `GET/POST /ai/admin/models`, `PATCH/DELETE /ai/admin/models/:id`, `POST /ai/admin/models/:id/{activate,test}`,
   `POST /ai/admin/models/test` (unsaved values), `POST /ai/admin/models/use-environment`; all admin-only, audited
   (`AI_MODEL_CREATED/UPDATED/DELETED/ACTIVATED/TESTED/USE_ENVIRONMENT`) with ids and codes only.
 - Apply the migration before using it: `npm run db:migrate:deploy` (docker: the `migrate` service does it).
   Without it the page shows an error and the environment configuration keeps working.
+
+## 8c. Answer rendering and gateway tolerance
+
+Assistant answers are rendered as Markdown (headings, lists, tables, code, bold/italic, `http(s)` links only) by a
+dependency-free renderer that builds React elements — model output is never interpreted as HTML. The
+OpenAI-compatible adapter tolerates gateway quirks: content given as parts, inlined `<think>…</think>` reasoning
+(dropped), missing `usage`, object-valued tool arguments, missing tool-call ids.
 
 ## 9. Verification status
 

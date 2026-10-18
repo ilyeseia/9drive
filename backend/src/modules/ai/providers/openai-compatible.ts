@@ -93,6 +93,19 @@ export class OpenAiCompatibleProvider implements ModelProvider {
   }
 }
 
+/** Text of a message: a plain string, or an array of content parts (some gateways), minus reasoning blocks. */
+function messageText(content: unknown): string {
+  let text = '';
+  if (typeof content === 'string') text = content;
+  else if (Array.isArray(content)) {
+    text = content
+      .map((part) => (typeof part === 'string' ? part : part && typeof part === 'object' && typeof (part as { text?: unknown }).text === 'string' ? (part as { text: string }).text : ''))
+      .join('');
+  }
+  // Reasoning models behind gateways sometimes inline their chain of thought; it is not an answer.
+  return text.replace(/<think>[\s\S]*?<\/think>/gi, '').replace(/^[\s\S]*?<\/think>/i, '').trim();
+}
+
 export function parseResponse(payload: unknown): ModelResponse {
   const choices = (payload as { choices?: unknown }).choices;
   if (!Array.isArray(choices) || choices.length === 0 || typeof choices[0] !== 'object' || choices[0] === null) {
@@ -122,7 +135,7 @@ export function parseResponse(payload: unknown): ModelResponse {
   const usage = (payload as { usage?: { prompt_tokens?: unknown; completion_tokens?: unknown } }).usage;
   const finish = choice.finish_reason;
   return {
-    text: typeof message.content === 'string' ? message.content : '',
+    text: messageText(message.content),
     toolCalls,
     usage:
       usage && typeof usage.prompt_tokens === 'number' && typeof usage.completion_tokens === 'number'
