@@ -35,9 +35,32 @@ export function getAgent(): AgentOrchestrator {
   return agent;
 }
 
+const DAY_MS = 86_400_000;
+const USAGE_RETENTION_DAYS = 35;
+let retentionTimer: NodeJS.Timeout | null = null;
+
+/** Deletes conversations older than the retention window (runs even when the AI is disabled). */
+export async function runRetention(now: Date = new Date()): Promise<number> {
+  const config = getAiConfig();
+  return getAgentStore().purgeExpired(new Date(now.getTime() - config.retentionDays * DAY_MS), new Date(now.getTime() - USAGE_RETENTION_DAYS * DAY_MS));
+}
+
 /** Called once at boot: reports configuration problems clearly and heals interrupted tasks. */
 export async function initAiAssistant(log: (message: string) => void = (message) => console.log(message)): Promise<void> {
   const config = getAiConfig();
+  const purge = async () => {
+    try {
+      const removed = await runRetention();
+      if (removed > 0) log(`[ai] retention removed ${removed} conversation(s) older than ${config.retentionDays} days`);
+    } catch (error) {
+      log(`[ai] retention run failed: ${error instanceof Error ? error.message : 'unknown error'}`);
+    }
+  };
+  if (!retentionTimer) {
+    retentionTimer = setInterval(() => void purge(), DAY_MS);
+    retentionTimer.unref();
+    void purge();
+  }
   if (!config.enabled) {
     log(`[ai] assistant disabled: ${config.reason}`);
     return;

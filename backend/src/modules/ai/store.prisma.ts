@@ -325,6 +325,13 @@ export function createPrismaStore(): AgentStore {
       });
       return result.count > 0;
     },
+    async purgeExpired(conversationsBefore, usageBefore) {
+      const result = await prisma.aiConversation.deleteMany({
+        where: { updatedAt: { lt: conversationsBefore }, tasks: { none: { status: { in: NON_TERMINAL } } } },
+      });
+      await prisma.aiUsageRecord.deleteMany({ where: { createdAt: { lt: usageBefore } } });
+      return result.count;
+    },
     async recordUsage(entry) {
       await prisma.aiUsageRecord.create({ data: entry });
     },

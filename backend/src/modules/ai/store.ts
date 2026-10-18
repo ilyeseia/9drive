@@ -137,6 +137,13 @@ export interface AgentStore {
   /** Atomic: PENDING → REJECTED or EXPIRED. */
   closeConfirmation(id: string, userId: string, status: 'REJECTED' | 'EXPIRED', now: Date): Promise<boolean>;
 
+  /**
+   * Retention: deletes conversations (with their messages, tasks, executions and confirmations)
+   * not touched since `conversationsBefore` — never one that still has a running or pending task —
+   * and usage rows older than `usageBefore`. Returns the number of conversations deleted.
+   */
+  purgeExpired(conversationsBefore: Date, usageBefore: Date): Promise<number>;
+
   recordUsage(data: { userId: string; taskId: string | null; provider: string; model: string; inputTokens: number; outputTokens: number }): Promise<void>;
   tokensSince(userId: string, since: Date): Promise<number>;
 }

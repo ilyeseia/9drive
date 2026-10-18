@@ -378,6 +378,16 @@ Frontend runs at:
 http://localhost:5173
 ```
 
+## AI Assistant (optional)
+
+A chat assistant (AI Assistant page; Arabic, English, French) that can inspect and manage your own storage
+through a fixed set of typed tools. Sensitive actions (deleting, sharing, routing changes, migrations)
+are only *proposed* by the model and need your approval on a confirmation card that the backend
+enforces. It needs a model provider you configure (`AI_PROVIDER`, `AI_MODEL`, `AI_API_KEY`, backend
+only) and is off until then; nothing else changes when it is unset. See
+[docs/ai-assistant.md](docs/ai-assistant.md) and
+[docs/ai-agent-architecture.md](docs/ai-agent-architecture.md).
+
 ## TeraBox (optional)
 
 9Drive can use TeraBox accounts through the **official TeraBox Open Platform** (QR-code

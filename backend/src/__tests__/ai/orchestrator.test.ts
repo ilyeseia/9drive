@@ -500,3 +500,32 @@ describe('history repair', () => {
     expect(history.length).toBeLessThan(10);
   });
 });
+
+describe('retention', () => {
+  it('deletes old conversations and their data but keeps recent ones and any with a pending task', async () => {
+    const h = await setup((_r, n) => (n === 1 ? call('trash_things', { ids: ['a'] }, 'c1') : say('ok')));
+    const waiting = await send(h); // leaves a task AWAITING_CONFIRMATION in h.conversationId
+    expect(waiting.status).toBe('AWAITING_CONFIRMATION');
+    const old = await h.store.createConversation('user-1', 'en', 'old');
+    await h.store.appendMessage(old.id, { role: 'user', content: 'ancient' });
+    const recent = await h.store.createConversation('user-1', 'en', 'recent');
+
+    h.clock.now = new Date(h.clock.now.getTime() + 100 * 86_400_000);
+    await h.store.updateConversation(recent.id, { title: 'recent' }); // touched "now"
+    const removed = await h.store.purgeExpired(new Date(h.clock.now.getTime() - 90 * 86_400_000), new Date(h.clock.now.getTime() - 35 * 86_400_000));
+    expect(removed).toBe(1);
+    expect(await h.store.getConversation('user-1', old.id)).toBeNull();
+    expect(await h.store.getConversation('user-1', recent.id)).not.toBeNull();
+    // The conversation with a task still waiting for approval is preserved.
+    expect(await h.store.getConversation('user-1', h.conversationId)).not.toBeNull();
+    expect(h.store.data.messages.some((m) => m.content === 'ancient')).toBe(false);
+  });
+
+  it('drops usage rows past the usage window', async () => {
+    const h = await setup(() => say('x'));
+    await h.store.recordUsage({ userId: 'user-1', taskId: null, provider: 'p', model: 'm', inputTokens: 5, outputTokens: 5 });
+    h.clock.now = new Date(h.clock.now.getTime() + 40 * 86_400_000);
+    await h.store.purgeExpired(new Date(0), new Date(h.clock.now.getTime() - 35 * 86_400_000));
+    expect(h.store.data.usage).toHaveLength(0);
+  });
+});

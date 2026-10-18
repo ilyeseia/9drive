@@ -193,6 +193,18 @@ export function createMemoryStore(now: () => Date = () => new Date()): AgentStor
       record.decidedAt = at;
       return true;
     },
+    async purgeExpired(conversationsBefore, usageBefore) {
+      let removed = 0;
+      for (const conversation of [...data.conversations.values()]) {
+        if (conversation.updatedAt >= conversationsBefore) continue;
+        const busy = [...data.tasks.values()].some((t) => t.conversationId === conversation.id && !TERMINAL_STATUSES.has(t.status));
+        if (busy) continue;
+        await this.deleteConversation(conversation.userId, conversation.id);
+        removed += 1;
+      }
+      data.usage = data.usage.filter((u) => u.at >= usageBefore);
+      return removed;
+    },
     async recordUsage(entry) {
       data.usage.push({ userId: entry.userId, tokens: entry.inputTokens + entry.outputTokens, at: now() });
     },

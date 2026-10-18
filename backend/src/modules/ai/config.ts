@@ -32,6 +32,8 @@ export interface AiConfig {
   maxBatch: number;
   /** Hard cap on rows a read tool returns. */
   maxResults: number;
+  /** Conversations untouched for this many days are deleted automatically. */
+  retentionDays: number;
 }
 
 type Env = Record<string, string | undefined>;
@@ -72,6 +74,7 @@ export function loadAiConfig(env: Env = process.env): AiConfig {
     historyMaxMessages: intIn(env, 'AI_HISTORY_MAX_MESSAGES', 30, 4, 200),
     maxBatch: intIn(env, 'AI_MAX_BATCH', 100, 1, 500),
     maxResults: intIn(env, 'AI_MAX_RESULTS', 50, 5, 200),
+    retentionDays: intIn(env, 'AI_RETENTION_DAYS', 90, 1, 3650),
   };
 
   const provider = env.AI_PROVIDER?.trim();

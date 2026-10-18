@@ -1,7 +1,7 @@
 # 9Drive AI Assistant – architecture
 
-Status: Phase A–B document (written before implementation; the "Implementation
-status" section at the end is updated when work lands).
+Status: Phase A–B design written before implementation; §7 records what was actually built and
+how it differs. Operator guide: [ai-assistant.md](ai-assistant.md).
 
 ## 1. Existing architecture (as found in the local checkout)
 
@@ -116,7 +116,7 @@ Risk: **L** low (no confirmation), **M** medium, **H** high. "C" = backend deman
 | `start_migration` | files | H/M | C | `MigrationJob`; "move" = H |
 | `get_routing_policy` | routing | L | – | |
 | `explain_routing` | routing | L | – | `previewRouting` + rejection reasons |
-| `preview_upload_destination` | routing | L | – | `selectAccount` with diagnostics (dry run) |
+| `preview_upload_destination` | routing | – | – | *merged into `explain_routing`*: `selectAccount` advances the round-robin cursor, so the existing side-effect-free `previewRouting` is used instead |
 | `update_routing_policy` | routing | M | C | `updateRoutingPolicy` |
 | `diagnose_uploads` | routing | L | – | recent failed sessions/operations |
 | `get_job_status` / `list_jobs` | system | L | – | real Job rows |
@@ -174,5 +174,29 @@ Acceptance: `tsc` clean; backend/ frontend builds; unit tests for providers (moc
 policy/confirmation (expired/altered/replayed/cross-user), tools (authorization + behaviour), injection scenarios;
 frontend tests for i18n/RTL/confirmation/progress; DB-backed paths clearly marked as not executed locally.
 
-## 7. Implementation status
-_Updated at the end of the work (see the final report)._
+## 7. Implementation status (final)
+
+| Capability | Status |
+|---|---|
+| Model abstraction: `openai_compatible`, `anthropic`; retries, timeout, cancellation, no fallback | Implemented and verified (HTTP fake); not live-verified |
+| Closed tool registry (32 tools), Zod schemas, output contracts, risk classes, timeouts | Implemented and verified |
+| Backend-enforced confirmation (hash-bound, TTL, single use, other-user/replay/altered rejected) | Implemented and verified |
+| Bounded orchestration (steps, tool calls, time, tokens, concurrency), cancellation, idempotency, partial status, restart recovery | Implemented and verified |
+| Persistence (6 additive tables), retention, conversation delete | Implemented; Prisma store and migration **not executed against Postgres** |
+| `/ai` API with auth, rate limits, size limits, degraded read-only tool endpoint | Implemented and verified (HTTP, mocked auth) |
+| Chat UI: progress, confirmation cards, cancel/retry/copy, errors, keyboard, ar/en/fr + RTL | Implemented and verified (37 tests + visual check) |
+| Prompt-injection, scoping, credential-leak, limit tests | Implemented and verified |
+| Live provider / live storage verification | Blocked: no credentials or infrastructure here (optional live test provided) |
+| Conversation *summarisation* of old context | Partial: bounded window + size cap + orphan repair; no LLM summary |
+| Token streaming | Not implemented (progress is polled task state) |
+| Upload / download of file bytes through chat | Not implemented by design (no authorised byte channel); destination preview only |
+| "Files not accessed recently" | Not possible: 9Drive stores no access time |
+| Provider-side public permissions, account reconnection | Not implemented (need the browser) |
+| Cross-provider move | Available only as a migration job (`start_migration`) |
+| Background execution via BullMQ | Not used: tasks run in-process (documented limitation); long work is delegated to existing jobs |
+
+### Deviations from the original design
+- The default-registry has 32 tools (`preview_upload_destination` folded into `explain_routing`).
+- Ids are validated with a lenient UUID shape (as the existing routes do) instead of Zod's strict RFC check.
+- The share-link URL is a bearer secret, so a `userOutput` channel was added: shown to the user, never to the model or the transcript.
+- An in-memory store implementation exists beside Prisma so the orchestrator is testable without a database.
