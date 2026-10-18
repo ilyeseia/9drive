@@ -57,6 +57,7 @@ AES-256-GCM credential encryption; a sound identity rule (`userId + provider + p
 | F18 | — | Upload failure/retry semantics (partial uploads, duplicate files, cleanup) and fallback to another account. | upload path not yet traced end to end | Suspected |
 | F19 | — | Correlation ids / metrics / diagnostic report are absent or partial. | to verify | Suspected |
 | F20 | — | Real Google/TeraBox/S3 provider calls cannot be exercised here (no credentials). | — | Blocked (credentials) |
+| F21 | Med | `refreshTokenEncrypted` is reused as `apiSecret` for every `api_key` provider, so credentials carry an unrelated field; the existing test `decrypts stored API keys for api_key accounts` encodes the intended shape. | `providers/context.ts` api_key branch | Confirmed (code) |
 
 ## 3. Operator-relevant changes expected
 
@@ -83,3 +84,14 @@ AES-256-GCM credential encryption; a sound identity rule (`userId + provider + p
    final report with verified vs assumed.
 
 Each step ends with a summary and a push; every push is gated on green type-check and tests.
+
+## 5. Step 2 results — baseline and reproduction
+
+Environment: embedded PGlite (PostgreSQL protocol, one connection) + local Redis, migrations applied with `prisma migrate deploy`; files run sequentially.
+
+- **Baseline** (`src/__tests__/providers` + `src/__tests__/api/providers`): 647 passed, 65 skipped; `providers.routes.test.ts` cannot run here because the app import opens more than one DB connection and the local PGlite allows one (environment limit, not a code defect). The previously noted `api_key` credentials test is part of finding F21.
+- **Reproduced** in `src/__tests__/providers/audit/audit-defects.test.ts` as `it.fails` (suite stays green; a fix flips the test, which must then become a plain `it`):
+  - F1 token endpoint 503 → account still ends `unauthorized` / `ERR_AUTH_EXPIRED`.
+  - F1 token endpoint 429 → same.
+  - F2 four concurrent `buildContext` calls on one expired account → token endpoint is called more than once.
+- F3, F4, F8, F9, F11, F12 reproductions are written together with their fixes in Steps 3–5 (they need the connect-flow harness); until then they stay *Confirmed (code)*.
