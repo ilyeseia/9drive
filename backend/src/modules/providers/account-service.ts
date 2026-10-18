@@ -14,6 +14,8 @@ import { assertFetchAllowed } from '../../utils/ssrf.js'
 import { syncS3Quota, testS3Connection } from '../s3/s3.service.js'
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+/** Written over S3 keys on disconnect so no usable secret remains (the column is non-null). */
+const DISCONNECTED_PLACEHOLDER = '__disconnected__'
 const S3_TOKEN_TTL_MS = 100 * 365 * 24 * 60 * 60 * 1000
 
 export const s3ConnectSchema = z.object({
@@ -143,10 +145,19 @@ export async function disconnectOwnedAccount(userId: string, accountId: string):
     data: { status: 'disconnected' },
   })
   if (result.count > 0) {
-    // TeraBox documents no token-revocation endpoint, so at least stop holding the credentials.
+    // Stop holding credentials for any provider (OAuth tokens, API key/password, S3 keys). Reconnecting supplies
+    // fresh credentials and revives the same row. Provider-side revocation is not performed (see audit doc, F10).
     await prisma.connectedAccount.updateMany({
-      where: { id: accountId, userId, provider: 'terabox_open' },
+      where: { id: accountId, userId },
       data: { accessTokenEncrypted: null, refreshTokenEncrypted: null, tokenExpiresAt: null },
+    })
+    await prisma.s3StorageConfig.updateMany({
+      where: { connectedAccountId: accountId, userId },
+      data: {
+        accessKeyIdEncrypted: encryptText(DISCONNECTED_PLACEHOLDER),
+        secretAccessKeyEncrypted: encryptText(DISCONNECTED_PLACEHOLDER),
+        status: 'disabled',
+      },
     })
   }
   return result.count > 0

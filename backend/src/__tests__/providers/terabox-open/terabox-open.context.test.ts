@@ -15,6 +15,10 @@ vi.mock('../../../config/prisma.js', () => ({
         h.updates.push(data);
         return {};
       },
+      updateMany: async ({ data }: { data: Record<string, any> }) => {
+        h.updates.push(data);
+        return { count: 1 };
+      },
     },
   },
 }));

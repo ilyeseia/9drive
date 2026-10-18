@@ -118,11 +118,21 @@ async function resolveProviderConfig(userId: string, provider: string, input: Co
       redirectUri: input.redirectUri ?? defaultRedirectUri(provider),
       scopes: input.scopes ?? getOAuth2Client(provider).scopes,
     }
-    const owned = await prisma.providerConfig.findFirst({
+    // Accounts keep the client they were connected with: only the SAME client id is updated in place; a different
+    // client id gets its own configuration row so existing accounts' refresh credentials are never replaced.
+    const candidates = await prisma.providerConfig.findMany({
       where: { userId, provider, status: 'active' },
       orderBy: { createdAt: 'desc' },
+      take: 50,
     })
-    if (owned) return prisma.providerConfig.update({ where: { id: owned.id }, data })
+    const sameClient = candidates.find((row) => {
+      try {
+        return decryptStored(row.clientIdEncrypted) === input.clientId
+      } catch {
+        return false
+      }
+    })
+    if (sameClient) return prisma.providerConfig.update({ where: { id: sameClient.id }, data })
     return prisma.providerConfig.create({ data: { userId, provider, ...data } })
   }
 

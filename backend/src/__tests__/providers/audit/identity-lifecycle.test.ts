@@ -14,9 +14,9 @@ import {
   isRoutable,
   normalizeAccountState,
 } from '../../../providers/lifecycle.js';
-import { createS3Account, createApiKeyAccount } from '../../../modules/providers/account-service.js';
-import { handleConnectCallback, sweepOrphanPendingAccounts } from '../../../modules/providers/connect-flow.js';
-import { encryptText, hashToken } from '../../../utils/crypto.js';
+import { createS3Account, createApiKeyAccount, disconnectOwnedAccount } from '../../../modules/providers/account-service.js';
+import { createConnectUrl, handleConnectCallback, sweepOrphanPendingAccounts } from '../../../modules/providers/connect-flow.js';
+import { decryptText, encryptText, hashToken } from '../../../utils/crypto.js';
 import { createTestUser, pingDb } from '../platform/helpers.js';
 
 describe('account lifecycle state machine', () => {
@@ -223,5 +223,33 @@ describe('identity, duplicates and atomicity (real DB)', () => {
     const second = await createApiKeyAccount(userId, 'terabox', { apiKey: 'cookie-two', email: email.toUpperCase(), password: 'pw' });
     expect(second.id).toBe(first.id);
     expect(await prisma.connectedAccount.count({ where: { userId, provider: 'terabox' } })).toBe(1);
+  });
+
+  it('F11: inline OAuth credentials for a different client never replace an existing configuration', async (ctx) => {
+    if (!dbOk) ctx.skip();
+    const before = await prisma.providerConfig.findUniqueOrThrow({ where: { id: providerConfigId } });
+    await createConnectUrl(userId, 'google_drive', { clientId: 'client-A', clientSecret: 'secret-A' });
+    await createConnectUrl(userId, 'google_drive', { clientId: 'client-B', clientSecret: 'secret-B' });
+    await createConnectUrl(userId, 'google_drive', { clientId: 'client-B', clientSecret: 'secret-B2' });
+    const after = await prisma.providerConfig.findUniqueOrThrow({ where: { id: providerConfigId } });
+    expect(after.clientIdEncrypted).toBe(before.clientIdEncrypted);
+    expect(after.clientSecretEncrypted).toBe(before.clientSecretEncrypted);
+    // original + client-A + client-B (client-B reused, its secret updated)
+    expect(await prisma.providerConfig.count({ where: { userId, provider: 'google_drive' } })).toBe(3);
+  });
+
+  it('F10: disconnect removes stored credentials', async (ctx) => {
+    if (!dbOk) ctx.skip();
+    const quota = { id: 'q' } as never;
+    const deps = { testConnection: async () => undefined, syncQuota: async () => quota };
+    const created = await createS3Account(userId, { ...s3Body('to-remove'), bucket: `disc-${userId.slice(0, 6)}` }, deps);
+    expect(await disconnectOwnedAccount(userId, created.account.id)).toBe(true);
+    const row = await prisma.connectedAccount.findUniqueOrThrow({ where: { id: created.account.id } });
+    const cfg = await prisma.s3StorageConfig.findUniqueOrThrow({ where: { connectedAccountId: created.account.id } });
+    expect(row.status).toBe('disconnected');
+    expect(row.accessTokenEncrypted).toBeNull();
+    expect(row.refreshTokenEncrypted).toBeNull();
+    expect(decryptText(cfg.secretAccessKeyEncrypted)).toBe('__disconnected__');
+    expect(cfg.status).toBe('disabled');
   });
 });

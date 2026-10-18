@@ -70,18 +70,27 @@ function decryptStored(value: string, label: string): string {
   }
 }
 
+/** Empty/absent values are `undefined`; a value that exists but cannot be decrypted is an error, never "missing". */
 function decryptOptional(value: string | null | undefined, label: string): string | undefined {
   if (!value) return undefined;
-  try {
-    return decryptStored(value, label);
-  } catch {
-    return undefined;
-  }
+  return decryptStored(value, label);
 }
+
+/** Refresh failures that say nothing about the credential itself (outage, throttling, network). */
+const TRANSIENT_REFRESH_CODES: ReadonlySet<string> = new Set(['ERR_RATE_LIMITED', 'ERR_UPSTREAM_UNAVAILABLE', 'ERR_TIMEOUT']);
+
+/** One in-flight refresh per account within this process; concurrent callers share its result. */
+const refreshInFlight = new Map<string, Promise<ProviderCredentials>>();
 
 function errorText(err: unknown): string {
   if (err instanceof Error) return err.message;
   return String(err);
+}
+
+async function recordTransientFailure(accountId: string, message: string): Promise<void> {
+  await prisma.connectedAccount
+    .update({ where: { id: accountId }, data: { lastError: truncateStoredMessage(message) } })
+    .catch(() => undefined);
 }
 
 async function markAuthFailure(account: { id: string; status: string }, message: string): Promise<void> {
@@ -190,7 +199,23 @@ async function findPeerRefresh(accountId: string, staleAccessToken: string | und
   }
 }
 
-async function resolveOAuthCredentials(
+function resolveOAuthCredentials(
+  account: ConnectedAccountRecord,
+  signal?: AbortSignal,
+): Promise<ProviderCredentials> {
+  const expiresSoon =
+    account.tokenExpiresAt !== null && account.tokenExpiresAt.getTime() - Date.now() <= OAUTH_REFRESH_WINDOW_MS;
+  if (!expiresSoon && account.accessTokenEncrypted) return resolveOAuthCredentialsUnshared(account, signal);
+  const running = refreshInFlight.get(account.id);
+  if (running) return running;
+  const started = resolveOAuthCredentialsUnshared(account, signal).finally(() => {
+    refreshInFlight.delete(account.id);
+  });
+  refreshInFlight.set(account.id, started);
+  return started;
+}
+
+async function resolveOAuthCredentialsUnshared(
   account: ConnectedAccountRecord,
   signal?: AbortSignal,
 ): Promise<ProviderCredentials> {
@@ -244,6 +269,10 @@ async function resolveOAuthCredentials(
       if (peer) {
         refreshed = peer;
         adoptedPeerRefresh = true;
+      } else if (ProviderError.is(err) && TRANSIENT_REFRESH_CODES.has(err.code)) {
+        // Outage/throttling: keep the account connected, record why, and surface the transient error.
+        await recordTransientFailure(account.id, errorText(err));
+        throw err;
       } else {
         await markAuthFailure(account, errorText(err));
         throw new ProviderError('ERR_AUTH_EXPIRED', `OAuth token refresh failed for provider '${account.provider}'`, {
@@ -252,16 +281,28 @@ async function resolveOAuthCredentials(
       }
     }
     try {
-      if (!adoptedPeerRefresh) await prisma.connectedAccount.update({
-        where: { id: account.id },
-        data: {
-          accessTokenEncrypted: encryptText(refreshed.accessToken),
-          ...(refreshed.refreshToken ? { refreshTokenEncrypted: encryptText(refreshed.refreshToken) } : {}),
-          tokenExpiresAt: refreshed.expiresAt === null ? null : new Date(refreshed.expiresAt),
-          lastError: null,
-          ...(account.status === 'unauthorized' ? { status: 'connected' as const } : {}),
-        },
-      });
+      if (!adoptedPeerRefresh) {
+        // Compare-and-set: only overwrite the token row we refreshed from. If another process refreshed first,
+        // keep its (newer) tokens instead of clobbering them with ours.
+        const written = await prisma.connectedAccount.updateMany({
+          where: {
+            id: account.id,
+            accessTokenEncrypted: account.accessTokenEncrypted,
+            refreshTokenEncrypted: account.refreshTokenEncrypted,
+          },
+          data: {
+            accessTokenEncrypted: encryptText(refreshed.accessToken),
+            ...(refreshed.refreshToken ? { refreshTokenEncrypted: encryptText(refreshed.refreshToken) } : {}),
+            tokenExpiresAt: refreshed.expiresAt === null ? null : new Date(refreshed.expiresAt),
+            lastError: null,
+            ...(account.status === 'unauthorized' ? { status: 'connected' as const } : {}),
+          },
+        });
+        if (written.count === 0) {
+          const peer = await findPeerRefresh(account.id, accessToken);
+          if (peer) refreshed = peer;
+        }
+      }
     } catch (cause) {
       throw new ProviderError('ERR_INTERNAL', 'failed to persist refreshed OAuth tokens', { cause });
     }

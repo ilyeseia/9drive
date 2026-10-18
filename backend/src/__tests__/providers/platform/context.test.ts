@@ -320,12 +320,26 @@ describe('buildContext', () => {
     const accountId = await createAccount({
       provider: 'koofr',
       accessToken: 'koofr-api-key',
+      refreshToken: null,
       tokenExpiresAt: null,
       withProviderConfig: false,
     });
     const ctx = await buildContext(accountId);
     expect(ctx.credentials).toEqual({ kind: 'api_key', apiKey: 'koofr-api-key' });
     expect(ctx.account.provider).toBe('koofr');
+  });
+
+  it('exposes the optional secondary secret of api_key accounts as apiSecret', async (testCtx) => {
+    if (!dbOk) testCtx.skip();
+    const accountId = await createAccount({
+      provider: 'koofr',
+      accessToken: 'koofr-api-key',
+      refreshToken: 'koofr-secret',
+      tokenExpiresAt: null,
+      withProviderConfig: false,
+    });
+    const ctx = await buildContext(accountId);
+    expect(ctx.credentials).toEqual({ kind: 'api_key', apiKey: 'koofr-api-key', apiSecret: 'koofr-secret' });
   });
 
   it('rejects an empty accountId', async (testCtx) => {

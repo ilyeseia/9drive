@@ -142,6 +142,18 @@ async function requestToken(
 
   if (!response.ok) {
     const description = String(payload.error_description ?? payload.error ?? '').toLowerCase()
+    // Transient upstream conditions are NOT credential problems: never report them as expired/revoked.
+    if (response.status === 429) {
+      throw new ProviderError('ERR_RATE_LIMITED', 'Token endpoint is rate limiting requests', {
+        upstreamStatus: response.status,
+        detail: { retryAfter: response.headers.get('retry-after') },
+      })
+    }
+    if (response.status >= 500 || response.status === 408) {
+      throw new ProviderError('ERR_UPSTREAM_UNAVAILABLE', 'Token endpoint is temporarily unavailable', {
+        upstreamStatus: response.status,
+      })
+    }
     if (description.includes('invalid_grant') || description.includes('revoked')) {
       throw new ProviderError('ERR_AUTH_REVOKED', 'The upstream rejected the refresh token', {
         upstreamStatus: response.status,
