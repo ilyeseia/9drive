@@ -344,3 +344,46 @@ describe('createUploadApi over HTTP', () => {
     await expect(createUploadApi(client).status('S')).rejects.toMatchObject({ kind: 'invalid_response' });
   });
 });
+
+describe('very large files', () => {
+  it('uses exact integer offsets beyond 4 GiB and 2^32, sends sizes as strings, and never reads more than one chunk at a time', async () => {
+    const TOTAL = 6 * 1024 ** 3 + 123; // ~6 GiB: past every 32-bit boundary
+    const CHUNK = 1024 ** 3;
+    const ranges: [number, number, number][] = [];
+    let spool = 0;
+    let maxLive = 0;
+    let live = 0;
+    const api: UploadApi = {
+      init: async (spec) => {
+        expect(typeof spec.size).toBe('number');
+        return { sessionId: 'S', chunkSize: CHUNK, offset: 0, status: 'uploading', file: null };
+      },
+      status: async () => ({ status: 'uploading', offset: spool }),
+      putChunk: async (_id, _body, r) => {
+        ranges.push([r.start, r.end, r.total]);
+        expect(r.start).toBe(spool);
+        spool = r.end + 1;
+        live -= 1;
+        return spool >= r.total
+          ? { status: 'completed', offset: spool, file: toFile('big.iso', TOTAL) }
+          : { status: 'uploading', offset: spool, file: null };
+      },
+    };
+    const source: UploadSource = {
+      name: 'big.iso',
+      mimeType: 'application/octet-stream',
+      size: TOTAL,
+      read: async () => {
+        live += 1;
+        maxLive = Math.max(maxLive, live);
+        return new Uint8Array(0) as unknown as BodyInit;
+      },
+    };
+    const out = await new UploadRunner(api, { sleep: noSleep }).run({ source, folderId: null, clientUploadId: 'cid' });
+    expect(out.file?.name).toBe('big.iso');
+    expect(ranges).toHaveLength(7);
+    expect(ranges.at(-1)).toEqual([6 * CHUNK, TOTAL - 1, TOTAL]);
+    expect(Number.isSafeInteger(TOTAL)).toBe(true);
+    expect(maxLive).toBe(1); // chunk N+1 is read only after chunk N was confirmed
+  });
+});

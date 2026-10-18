@@ -1,4 +1,5 @@
 import { ApiClient } from '../api/client';
+import { setLogSink, setVerbose } from '../core/logger';
 import { SessionManager } from './session';
 import { MemoryTokenStore, type StoredSession } from './tokenStore';
 
@@ -235,5 +236,37 @@ describe('sign out', () => {
     await session.restore();
     await session.signOut();
     expect(log).toEqual([]);
+  });
+});
+
+describe('secrets never reach the logs', () => {
+  it('a full sign-in, rotation, failure and sign-out writes no token or password to any log sink', async () => {
+    const events: unknown[] = [];
+    setVerbose(true);
+    setLogSink((e) => events.push(e));
+    const spies = ['log', 'warn', 'error'].map((m) => jest.spyOn(console, m as 'log').mockImplementation(() => undefined));
+    try {
+      let rotated = false;
+      const { session, client } = setup(({ path, body }) => {
+        if (path === '/auth/login') return json(200, { accessToken: 'ACCESS-SECRET-123', refreshToken: 'REFRESH-SECRET-456', user: USER });
+        if (path === '/auth/refresh') {
+          rotated = true;
+          return json(200, { accessToken: 'ACCESS-SECRET-789', refreshToken: 'REFRESH-SECRET-999' });
+        }
+        if (path === '/auth/logout') throw new TypeError(`Network request failed (Bearer ACCESS-SECRET-789) ${JSON.stringify(body)}`);
+        return rotated ? json(200, { files: [] }) : err(401, 'AUTH_SESSION_EXPIRED');
+      });
+      await session.signIn('ada@example.com', 'p4ssw0rd-LEAK-CHECK');
+      await client.request({ path: '/files' });
+      await session.signOut();
+      const everything = JSON.stringify(events) + JSON.stringify(spies.flatMap((s) => s.mock.calls));
+      for (const secret of ['ACCESS-SECRET-123', 'REFRESH-SECRET-456', 'ACCESS-SECRET-789', 'REFRESH-SECRET-999', 'p4ssw0rd-LEAK-CHECK']) {
+        expect(everything).not.toContain(secret);
+      }
+    } finally {
+      setLogSink(null);
+      setVerbose(false);
+      spies.forEach((s) => s.mockRestore());
+    }
   });
 });
