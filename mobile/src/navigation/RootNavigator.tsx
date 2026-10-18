@@ -3,11 +3,11 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { useI18n } from '../i18n/I18nProvider';
 import { useTheme } from '../theme/theme';
 import { SettingsScreen } from '../features/settings/SettingsScreen';
-import { PlaceholderScreen } from '../features/PlaceholderScreen';
 import { FilesStack } from './FilesStack';
 import { OfflineBanner } from '../ui/Offline';
 import { View } from 'react-native';
 import { StorageStack } from './StorageStack';
+import { AssistantStack } from './AssistantStack';
 
 export type TabParamList = {
   Files: undefined;
@@ -50,7 +50,7 @@ export function RootNavigator() {
           <Tab.Screen
             name="Assistant"
             options={{ title: t('tabAssistant'), tabBarAccessibilityLabel: t('tabAssistant') }}
-            component={PlaceholderScreen}
+            component={AssistantStack}
           />
           <Tab.Screen
             name="Settings"
