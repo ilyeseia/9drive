@@ -1,0 +1,46 @@
+{
+  "expo": {
+    "name": "9Drive",
+    "slug": "ninedrive",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "app.ninedrive.mobile",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#E6F4FE",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false,
+      "package": "app.ninedrive.mobile",
+      "blockedPermissions": ["android.permission.RECORD_AUDIO", "android.permission.READ_PHONE_STATE"]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-secure-store",
+      [
+        "expo-localization",
+        {
+          "supportsRTL": true,
+          "supportedLocales": {
+            "ios": ["en", "ar", "fr"],
+            "android": ["en", "ar", "fr"]
+          }
+        }
+      ]
+    ],
+    "scheme": "ninedrive",
+    "newArchEnabled": true
+  }
+}
