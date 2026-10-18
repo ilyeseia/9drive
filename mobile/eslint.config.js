@@ -19,6 +19,11 @@ module.exports = [
     rules: { 'no-console': 'off' },
   },
   {
+    // Node scripts run in CI, not in the app: console output is their interface.
+    files: ['scripts/**'],
+    rules: { 'no-console': 'off' },
+  },
+  {
     files: ['**/*.test.ts', '**/*.test.tsx', 'src/test/**'],
     rules: { 'no-console': 'off' },
   },

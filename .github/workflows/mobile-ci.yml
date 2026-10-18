@@ -1,0 +1,53 @@
+name: mobile-ci
+
+on:
+  push:
+    paths: ['mobile/**', 'docs/mobile/**', '.github/workflows/mobile-ci.yml']
+  pull_request:
+    paths: ['mobile/**', 'docs/mobile/**', '.github/workflows/mobile-ci.yml']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mobile-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: mobile
+    env:
+      # Public placeholder: EXPO_PUBLIC_* values are embedded in bundles. Real values come from the release environment.
+      EXPO_PUBLIC_API_URL: https://9drive.example.com
+      CI: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      # --ignore-scripts: no dependency install script runs in CI (verified to work; only dev tooling has any).
+      - run: npm ci --ignore-scripts
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run format:check
+      - run: npm run scan:secrets
+      - run: npm test
+      - run: npm run doctor
+      - name: Metro bundles (Android + iOS)
+        run: npm run export:check
+      - name: Dependency audit (production tree)
+        run: |
+          npm audit --omit=dev --json > ../audit-report.json || true
+          npm audit --omit=dev --audit-level=critical
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mobile-audit-report
+          path: audit-report.json
+          if-no-files-found: ignore

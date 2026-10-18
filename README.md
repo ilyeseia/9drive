@@ -48,6 +48,10 @@ Live preview: https://9drive.zenhosta.com
 
 [![Star History Chart](https://star-history.dera.page/svg?repos=zenhosta/9drive&type=Date)](https://star-history.dera.page/#zenhosta/9drive&type=Date)
 
+## Mobile app
+
+An Android/iOS client lives in [mobile/](mobile/README.md) (React Native + Expo, TypeScript). Docs: [docs/mobile](docs/mobile/00-audit-and-plan.md).
+
 ## Project Structure
 
 ```txt
