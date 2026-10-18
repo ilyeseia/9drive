@@ -4,6 +4,7 @@ import { useI18n } from '../i18n/I18nProvider';
 import { useTheme } from '../theme/theme';
 import { SettingsScreen } from '../features/settings/SettingsScreen';
 import { PlaceholderScreen } from '../features/PlaceholderScreen';
+import { FilesStack } from './FilesStack';
 
 export type TabParamList = {
   Files: undefined;
@@ -35,11 +36,7 @@ export function RootNavigator() {
       <Tab.Navigator
         screenOptions={{ headerShown: false, tabBarActiveTintColor: colors.primary, tabBarInactiveTintColor: colors.textMuted }}
       >
-        <Tab.Screen
-          name="Files"
-          options={{ title: t('tabFiles'), tabBarAccessibilityLabel: t('tabFiles') }}
-          component={PlaceholderScreen}
-        />
+        <Tab.Screen name="Files" options={{ title: t('tabFiles'), tabBarAccessibilityLabel: t('tabFiles') }} component={FilesStack} />
         <Tab.Screen
           name="Storage"
           options={{ title: t('tabStorage'), tabBarAccessibilityLabel: t('tabStorage') }}

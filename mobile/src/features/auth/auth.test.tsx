@@ -1,45 +1,16 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
-import type { ReactNode } from 'react';
-import { ApiClient } from '../../api/client';
-import { ServicesProvider, type Services } from '../../app/services';
-import { LockController } from '../../auth/lock';
-import { SessionManager } from '../../auth/session';
-import { MemoryTokenStore } from '../../auth/tokenStore';
-import { I18nProvider } from '../../i18n/I18nProvider';
-import { ThemeProvider } from '../../theme/theme';
+import { json as respondJson, makeHarness } from '../../test/helpers';
 import { AuthScreen } from './AuthScreen';
 import { authErrorKey, validateEmail, validateExistingPassword, validateName, validateNewPassword } from './validation';
 
 const USER = { id: 'u1', name: 'Ada', email: 'ada@example.com' };
 
 function harness(respond: (path: string, body: any) => Response | Promise<Response>) {
-  const calls: { path: string; body: any }[] = [];
-  const fetchImpl = (async (url: string, init: RequestInit) => {
-    const path = new URL(url).pathname;
-    const body = init.body ? JSON.parse(String(init.body)) : undefined;
-    calls.push({ path, body });
-    return respond(path, body);
-  }) as unknown as typeof fetch;
-  const client = new ApiClient({ baseUrl: 'https://api.test', fetchImpl, retry: { maxRetries: 0, baseDelayMs: 1, maxDelayMs: 1 } });
-  const store = new MemoryTokenStore();
-  const session = new SessionManager(client, store);
-  const lock = new LockController({
-    authenticator: { availability: async () => 'ok', authenticate: async () => true },
-    load: async () => ({ enabled: false, timeoutSec: 0 }),
-    save: async () => undefined,
-  });
-  const services: Services = { client, session, lock };
-  const wrap = (ui: ReactNode) => (
-    <ThemeProvider initialMode="light">
-      <I18nProvider initialLocale="en">
-        <ServicesProvider services={services}>{ui}</ServicesProvider>
-      </I18nProvider>
-    </ThemeProvider>
-  );
-  return { calls, session, store, wrap };
+  const h = makeHarness(({ path, body }) => respond(path, body));
+  return { calls: h.calls, session: h.services.session, store: h.store, wrap: h.wrap };
 }
 
-const ok = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
+const ok = respondJson;
 
 describe('validation', () => {
   it('mirrors the server rules', () => {
@@ -82,7 +53,7 @@ describe('AuthScreen', () => {
     await fireEvent.changeText(screen.getByLabelText('Password'), 'correct horse');
     await fireEvent.press(screen.getByRole('button', { name: 'Sign in' }));
     await waitFor(() => expect(h.session.getState().status).toBe('signedIn'));
-    expect(h.calls[0]).toEqual({ path: '/auth/login', body: { email: 'ada@example.com', password: 'correct horse' } });
+    expect(h.calls[0]).toMatchObject({ path: '/auth/login', body: { email: 'ada@example.com', password: 'correct horse' } });
     expect(h.store.value?.refreshToken).toBe('R');
   });
 

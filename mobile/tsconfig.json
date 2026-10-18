@@ -7,7 +7,7 @@
     "noFallthroughCasesInSwitch": true,
     "exactOptionalPropertyTypes": false,
     "forceConsistentCasingInFileNames": true,
-    "types": ["jest"]
+    "types": ["jest", "node"]
   },
   "include": ["**/*.ts", "**/*.tsx", ".expo/types/**/*.ts", "expo-env.d.ts"],
   "exclude": ["node_modules", "dist-check"]

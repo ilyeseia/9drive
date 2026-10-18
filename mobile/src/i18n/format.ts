@@ -6,16 +6,13 @@
  * direction. Sizes such as "5.2 GB" are always laid out left-to-right so the number stays beside its unit.
  */
 
+import { FSI, LRI, PDI, stripBidiControls } from '../core/bidi';
 import type { Locale } from './messages';
-
-const LRI = '⁦'; // left-to-right isolate
-const FSI = '⁨'; // first-strong isolate
-const PDI = '⁩'; // pop directional isolate
 
 /** Wraps arbitrary text (a file name, an e-mail) so it cannot disturb the direction of the text around it. */
 export function isolate(text: string): string {
   // Strip any isolate/override controls already inside: they could close our isolate early.
-  const cleaned = text.replace(/[‪-‮⁦-⁩]/g, '');
+  const cleaned = stripBidiControls(text);
   return `${FSI}${cleaned}${PDI}`;
 }
 

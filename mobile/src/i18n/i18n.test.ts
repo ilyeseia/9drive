@@ -1,4 +1,5 @@
 import { ApiError } from '../api/errors';
+import { FSI, PDI, RLO, isBidiControl } from '../core/bidi';
 import { errorMessageKey } from './I18nProvider';
 import { formatBytes, formatDate, formatPercent, isolate, ltr } from './format';
 import { LOCALES, MESSAGES, isRtl, matchLocale, translate, type MessageKey } from './messages';
@@ -88,10 +89,12 @@ describe('formatting', () => {
   });
 
   it('isolates untrusted text and strips embedded bidi controls that could break out of the isolate', () => {
-    const evil = 'invoice‮txt.exe⁩ pwned';
+    const evil = `invoice${RLO}txt.exe${PDI} pwned`;
     const out = isolate(evil);
-    expect(out.startsWith('⁨')).toBe(true);
-    expect(out.endsWith('⁩')).toBe(true);
-    expect(out.slice(1, -1)).not.toMatch(/[‪-‮⁦-⁩]/);
+    expect(out.startsWith(FSI)).toBe(true);
+    expect(out.endsWith(PDI)).toBe(true);
+    const inner = out.slice(1, -1);
+    expect([...inner].some((ch) => isBidiControl(ch.codePointAt(0) ?? 0))).toBe(false);
+    expect(inner).toBe('invoicetxt.exe pwned');
   });
 });

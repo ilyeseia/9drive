@@ -34,6 +34,10 @@ export interface RequestSpec<T> {
   path: string;
   query?: Query;
   body?: unknown;
+  /** Binary payload (e.g. an upload chunk). Sent as-is; mutually exclusive with ody. */
+  rawBody?: BodyInit;
+  /** Per-request transport, used for streaming bodies the default fetch cannot send. */
+  fetchImpl?: typeof fetch;
   schema?: ZodType<T>;
   /** Default true. Login/refresh/register pass false. */
   auth?: boolean;
@@ -168,8 +172,10 @@ export class ApiClient {
   private async once<T>(spec: RequestSpec<T>, method: HttpMethod, token: string | null): Promise<T> {
     const headers: Record<string, string> = { Accept: 'application/json', 'X-Client': this.clientName, ...spec.headers };
     if (token) headers.Authorization = `Bearer ${token}`;
-    let body: string | undefined;
-    if (spec.body !== undefined) {
+    let body: BodyInit | undefined;
+    if (spec.rawBody !== undefined) {
+      body = spec.rawBody;
+    } else if (spec.body !== undefined) {
       headers['Content-Type'] = 'application/json';
       body = JSON.stringify(spec.body);
     }
@@ -186,7 +192,12 @@ export class ApiClient {
 
     let response: Response;
     try {
-      response = await this.fetchImpl(this.buildUrl(spec.path, spec.query), { method, headers, body, signal: controller.signal });
+      response = await (spec.fetchImpl ?? this.fetchImpl)(this.buildUrl(spec.path, spec.query), {
+        method,
+        headers,
+        body,
+        signal: controller.signal,
+      });
     } catch {
       if (spec.signal?.aborted) throw new ApiError('cancelled', null, null, 'Request cancelled.');
       if (timedOut) throw new ApiError('timeout', null, null, 'The request timed out.');
