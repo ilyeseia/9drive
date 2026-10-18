@@ -633,3 +633,23 @@ model AiUsageRecord {
   @@index([userId, createdAt])
   @@map("ai_usage_records")
 }
+
+/// Model connections managed from the admin console. The API key is stored encrypted (AES-256-GCM) and never returned.
+model AiModelProfile {
+  id                String    @id @default(uuid()) @db.Uuid
+  name              String    @db.VarChar(80)
+  provider          String    @db.VarChar(32)
+  model             String    @db.VarChar(128)
+  baseUrl           String?   @map("base_url") @db.VarChar(512)
+  apiKeyEnc         String?   @map("api_key_enc") @db.Text
+  isActive          Boolean   @default(false) @map("is_active")
+  lastTestAt        DateTime? @map("last_test_at")
+  lastTestOk        Boolean?  @map("last_test_ok")
+  lastTestCode      String?   @map("last_test_code") @db.VarChar(64)
+  lastTestLatencyMs Int?      @map("last_test_latency_ms")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  @@unique([name])
+  @@map("ai_model_profiles")
+}

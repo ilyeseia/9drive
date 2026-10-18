@@ -158,8 +158,29 @@ by status, per-tool success/failure/latency, and recent tasks across users (user
 no message text or tool arguments). Actions: **Test connection** (one tiny tool-less model request) and
 **Stop** on any running task. Endpoints: `GET /ai/admin/overview`, `POST /ai/admin/test`,
 `POST /ai/admin/tasks/:id/cancel` (audited as `AI_ADMIN_TEST` / `AI_ADMIN_CANCEL_TASK`).
-Changing the provider, model or key is deliberately **not** possible from the UI: they live in the backend
-environment and need a restart.
+
+### Models (add, test, switch — no restart, no .env edit)
+
+The **Models** card manages model connections stored in the database (table `ai_model_profiles`, migration
+`20261018120000_ai_model_profiles`): name, provider (`openai_compatible` / `anthropic`), model id, optional base
+URL (query strings and credentials in the URL are rejected) and API key. Per model: **Test connection**
+(one tiny tool-less request, no retries, 20 s timeout; the outcome and latency are stored and shown),
+**Use** (makes it the single active model, applied in place without a restart), **Edit**, **Delete**.
+The form can **test unsaved values** before saving. The row **Environment (.env)** stands for the `AI_*`
+variables; **Use** on it deactivates every stored model. Active stored model > environment; limits (`AI_MAX_*`,
+daily token limit, ...) always come from the environment.
+
+- API keys are encrypted with AES-256-GCM using `TOKEN_ENCRYPTION_KEY`, are write-only (responses only say
+  `hasKey`), and editing without typing a key keeps the stored one. If `TOKEN_ENCRYPTION_KEY` changes, stored keys can
+  no longer be decrypted: the active profile is then ignored at boot (environment is used) and must be re-entered.
+- The base URL is chosen by an administrator, so an admin can make the server call any http(s) address (including
+  internal ones). Only give the admin role to people you trust with that.
+- State lives in one process: with several backend instances, restart the others (or call Use again) after a change.
+- Endpoints: `GET/POST /ai/admin/models`, `PATCH/DELETE /ai/admin/models/:id`, `POST /ai/admin/models/:id/{activate,test}`,
+  `POST /ai/admin/models/test` (unsaved values), `POST /ai/admin/models/use-environment`; all admin-only, audited
+  (`AI_MODEL_CREATED/UPDATED/DELETED/ACTIVATED/TESTED/USE_ENVIRONMENT`) with ids and codes only.
+- Apply the migration before using it: `npm run db:migrate:deploy` (docker: the `migrate` service does it).
+  Without it the page shows an error and the environment configuration keeps working.
 
 ## 9. Verification status
 

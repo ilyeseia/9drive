@@ -3,6 +3,9 @@
 import { AgentOrchestrator } from './agent.js';
 import { getAiConfig } from './config.js';
 import { createModelProvider } from './providers/index.js';
+import { decryptText, encryptText } from '../../utils/crypto.js';
+import { createProfileService, type ProfileService } from './profiles.js';
+import { createPrismaProfileStore } from './profiles.prisma.js';
 import { createPrismaStore } from './store.prisma.js';
 import { createDefaultRegistry } from './tools/index.js';
 import type { ToolRegistry } from './tools/registry.js';
@@ -11,6 +14,7 @@ import type { AgentStore } from './store.js';
 let agent: AgentOrchestrator | null = null;
 let registry: ToolRegistry | null = null;
 let store: AgentStore | null = null;
+let profiles: ProfileService | null = null;
 
 export function getToolRegistry(): ToolRegistry {
   registry ??= createDefaultRegistry();
@@ -20,6 +24,11 @@ export function getToolRegistry(): ToolRegistry {
 export function getAgentStore(): AgentStore {
   store ??= createPrismaStore();
   return store;
+}
+
+export function getProfileService(): ProfileService {
+  profiles ??= createProfileService({ store: createPrismaProfileStore(), encrypt: encryptText, decrypt: decryptText });
+  return profiles;
 }
 
 export function getAgent(): AgentOrchestrator {
@@ -47,6 +56,13 @@ export async function runRetention(now: Date = new Date()): Promise<number> {
 
 /** Called once at boot: reports configuration problems clearly and heals interrupted tasks. */
 export async function initAiAssistant(log: (message: string) => void = (message) => console.log(message)): Promise<void> {
+  // A model activated from the admin console wins over the AI_* environment variables.
+  try {
+    const active = await getProfileService().applyActive();
+    if (active) log(`[ai] using model profile "${active.name}" from the admin console`);
+  } catch (error) {
+    log(`[ai] could not load model profiles (migration applied?): ${error instanceof Error ? error.message : 'unknown error'}`);
+  }
   const config = getAiConfig();
   const purge = async () => {
     try {

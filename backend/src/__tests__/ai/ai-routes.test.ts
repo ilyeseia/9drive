@@ -3,7 +3,7 @@ import express from 'express';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 
-const rt = vi.hoisted(() => ({ agent: null as any, store: null as any, registry: null as any, config: null as any, testProvider: null as any }));
+const rt = vi.hoisted(() => ({ agent: null as any, store: null as any, registry: null as any, config: null as any, testProvider: null as any, profiles: null as any }));
 
 vi.mock('../../middleware/auth.middleware.js', () => ({
   requireAuth: (req: any, res: any, next: any) => {
@@ -29,6 +29,7 @@ vi.mock('../../modules/ai/runtime.js', () => ({
   getAgent: () => rt.agent,
   getAgentStore: () => rt.store,
   getToolRegistry: () => rt.registry,
+  getProfileService: () => rt.profiles,
 }));
 vi.mock('../../modules/ai/config.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../modules/ai/config.js')>()),
@@ -41,6 +42,7 @@ import { aiRouter } from '../../modules/ai/ai.routes.js';
 import { errorMiddleware } from '../../middleware/error.middleware.js';
 import type { ModelProvider, ModelResponse } from '../../modules/ai/providers/types.js';
 import { createMemoryStore } from '../../modules/ai/store.memory.js';
+import { createMemoryProfileStore, createProfileService } from '../../modules/ai/profiles.js';
 import { ToolRegistry, defineTool } from '../../modules/ai/tools/index.js';
 
 let server: Server;
@@ -77,6 +79,13 @@ function resetState(script: (n: number) => ModelResponse, enabled = true) {
   let n = 0;
   const provider: ModelProvider = { id: 'scripted', model: 'm', complete: async () => script(++n) };
   rt.agent = new AgentOrchestrator({ store: rt.store, registry: rt.registry, config: rt.config, provider: () => provider });
+  rt.profiles = createProfileService({
+    store: createMemoryProfileStore(),
+    encrypt: (v) => `enc:${v}`,
+    decrypt: (v) => v.slice(4),
+    apply: () => undefined,
+    probe: async (o) => (o.apiKey === 'bad-key' ? { ok: false, latencyMs: 5, code: 'MODEL_AUTH', model: null } : { ok: true, latencyMs: 7, code: null, model: o.model }),
+  });
   executed.length = 0;
 }
 
@@ -126,7 +135,9 @@ describe('authentication', () => {
       ['GET', `/conversations/${ID}`], ['DELETE', `/conversations/${ID}`], ['POST', `/conversations/${ID}/messages`],
       ['GET', `/tasks/${ID}`], ['POST', `/tasks/${ID}/cancel`], ['POST', `/confirmations/${ID}/approve`],
       ['POST', `/confirmations/${ID}/reject`], ['POST', '/tools/list_things/run'],
-      ['GET', '/admin/overview'], ['POST', '/admin/test'], ['POST', `/admin/tasks/${ID}/cancel`],
+      ['GET', '/admin/overview'], ['POST', '/admin/test'], ['GET', '/admin/models'], ['POST', '/admin/models'], ['POST', '/admin/models/test'],
+      ['PATCH', `/admin/models/${ID}`], ['DELETE', `/admin/models/${ID}`], ['POST', `/admin/models/${ID}/activate`], ['POST', `/admin/models/${ID}/test`], ['POST', '/admin/models/use-environment'],
+      ['POST', `/admin/tasks/${ID}/cancel`],
     ];
     for (const [method, path] of routes) {
       const res = await api(method, path, { body: {} });
@@ -327,5 +338,68 @@ describe('admin console', () => {
     expect(res.status).toBe(200);
     expect(res.body.task.status).toBe('CANCELLED');
     expect((await api('POST', `/admin/tasks/${ID}/cancel`, { user: 'admin-1', body: {} })).status).toBe(404);
+  });
+});
+
+describe('admin model management', () => {
+  const body = (over: Record<string, unknown> = {}) => ({ name: 'Gateway', provider: 'openai_compatible', model: 'auto', baseUrl: 'https://llm.example.net/v1', apiKey: 'sk-live-abc', ...over });
+  const admin = { user: 'admin-1' };
+
+  it('is forbidden to non-admin users on every model route', async () => {
+    const user = { user: 'alice' };
+    expect((await api('GET', '/admin/models', user)).status).toBe(403);
+    expect((await api('POST', '/admin/models', { ...user, body: body() })).status).toBe(403);
+    expect((await api('POST', '/admin/models/test', { ...user, body: body() })).status).toBe(403);
+    expect((await api('POST', `/admin/models/${ID}/activate`, { ...user, body: {} })).status).toBe(403);
+    expect((await api('DELETE', `/admin/models/${ID}`, user)).status).toBe(403);
+  });
+
+  it('creates, lists, tests, activates, edits and deletes a model without ever returning the key', async () => {
+    const created = await api('POST', '/admin/models', { ...admin, body: body() });
+    expect(created.status).toBe(201);
+    expect(created.text).not.toContain('sk-live-abc');
+    const id = created.body.profile.id as string;
+
+    const list = await api('GET', '/admin/models', admin);
+    expect(list.body.profiles).toHaveLength(1);
+    expect(list.body.profiles[0]).toMatchObject({ name: 'Gateway', hasKey: true, isActive: false });
+    expect(list.text).not.toContain('sk-live-abc');
+    expect(list.body.environment).toHaveProperty('keyConfigured');
+
+    const tested = await api('POST', `/admin/models/${id}/test`, { ...admin, body: {} });
+    expect(tested.body).toMatchObject({ ok: true, profile: { lastTest: { ok: true } } });
+
+    const activated = await api('POST', `/admin/models/${id}/activate`, { ...admin, body: {} });
+    expect(activated.body.profile.isActive).toBe(true);
+
+    const edited = await api('PATCH', `/admin/models/${id}`, { ...admin, body: { model: 'auto-2' } });
+    expect(edited.body.profile).toMatchObject({ model: 'auto-2', hasKey: true, lastTest: null });
+
+    expect((await api('POST', '/admin/models/use-environment', { ...admin, body: {} })).status).toBe(200);
+    expect((await api('GET', '/admin/models', admin)).body.activeId).toBeNull();
+
+    expect((await api('DELETE', `/admin/models/${id}`, admin)).status).toBe(200);
+    expect((await api('GET', '/admin/models', admin)).body.profiles).toEqual([]);
+  });
+
+  it('validates input and reports clear errors', async () => {
+    expect((await api('POST', '/admin/models', { ...admin, body: body({ name: '' }) })).status).toBe(400);
+    expect((await api('POST', '/admin/models', { ...admin, body: body({ provider: 'nope' }) })).status).toBe(400);
+    const noKey = await api('POST', '/admin/models', { ...admin, body: body({ provider: 'anthropic', apiKey: undefined }) });
+    expect(noKey.status).toBe(400);
+    expect(noKey.body.code).toBe('INVALID_PROFILE');
+    await api('POST', '/admin/models', { ...admin, body: body() });
+    expect((await api('POST', '/admin/models', { ...admin, body: body({ name: 'GATEWAY' }) })).status).toBe(409);
+    expect((await api('POST', `/admin/models/${ID}/test`, { ...admin, body: {} })).status).toBe(404);
+    expect((await api('POST', '/admin/models/not-a-uuid/activate', { ...admin, body: {} })).status).toBe(404);
+  });
+
+  it('tests unsaved values (including a failing key) without saving anything', async () => {
+    const ok = await api('POST', '/admin/models/test', { ...admin, body: body() });
+    expect(ok.body).toMatchObject({ ok: true, model: 'auto' });
+    const bad = await api('POST', '/admin/models/test', { ...admin, body: body({ apiKey: 'bad-key' }) });
+    expect(bad.body).toMatchObject({ ok: false, code: 'MODEL_AUTH' });
+    expect(bad.text).not.toContain('bad-key');
+    expect((await api('GET', '/admin/models', admin)).body.profiles).toEqual([]);
   });
 });

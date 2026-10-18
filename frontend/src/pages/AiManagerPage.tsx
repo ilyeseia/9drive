@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { AlertTriangle, Loader2, RefreshCw, ShieldCheck, Square } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
+import { ModelsPanel } from '@/components/assistant/ModelsPanel'
 import { ApiError } from '@/lib/api'
 import { STATUS_KEYS, assistantAdminApi, errorKeyFor, isActiveStatus, type AdminOverview, type AdminTestResult } from '@/lib/assistant'
 import { useLocale } from '@/lib/i18n'
@@ -130,6 +131,8 @@ export function AiManagerPage() {
               </dl>
             </details>
           </Card>
+
+          <ModelsPanel onChanged={() => void load()} />
 
           <section aria-label={t('mgrUsage', { days: data.windowDays })} className="space-y-2">
             <h2 className="text-sm font-extrabold">{t('mgrUsage', { days: data.windowDays })}</h2>

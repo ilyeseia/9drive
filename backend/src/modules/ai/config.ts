@@ -175,6 +175,18 @@ export function adminAiConfig(config: AiConfig) {
   };
 }
 
+/** A model connection chosen at runtime (admin console) that replaces AI_PROVIDER/AI_MODEL/AI_API_KEY/AI_BASE_URL. */
+export interface ConfigOverride {
+  provider: string;
+  model: string;
+  baseUrl: string | null;
+  apiKey: string | null;
+}
+
+export function envForOverride(override: ConfigOverride, base: Env = process.env, extra: Env = {}): Env {
+  return { ...base, AI_PROVIDER: override.provider, AI_MODEL: override.model, AI_BASE_URL: override.baseUrl ?? '', AI_API_KEY: override.apiKey ?? '', ...extra };
+}
+
 let cached: AiConfig | null = null;
 
 export function getAiConfig(): AiConfig {
@@ -185,4 +197,14 @@ export function getAiConfig(): AiConfig {
 /** Test seam. */
 export function resetAiConfigCache(next: AiConfig | null = null): void {
   cached = next;
+}
+
+/**
+ * Switches the live configuration in place (the orchestrator holds this same object), either to a
+ * runtime override or back to the environment. Limits always come from the environment.
+ */
+export function applyAiOverride(override: ConfigOverride | null, env: Env = process.env): AiConfig {
+  const target = getAiConfig();
+  Object.assign(target, loadAiConfig(override ? envForOverride(override, env) : env));
+  return target;
 }

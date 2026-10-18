@@ -220,4 +220,54 @@ export const assistantAdminApi = {
   cancelTask: (taskId: string) => apiFetch<{ task: TaskDto }>(`/ai/admin/tasks/${taskId}/cancel`, json({})),
 }
 
+export interface ModelProfile {
+  id: string
+  name: string
+  provider: 'openai_compatible' | 'anthropic' | string
+  model: string
+  baseUrl: string | null
+  hasKey: boolean
+  isActive: boolean
+  lastTest: { at: string; ok: boolean; code: string | null; latencyMs: number | null } | null
+  createdAt: string
+}
+
+export type AdminConfigView = AdminOverview['config']
+
+export interface ModelsResponse {
+  profiles: ModelProfile[]
+  activeId: string | null
+  environment: AdminConfigView
+  effective: AdminConfigView
+}
+
+export interface ModelInput {
+  name: string
+  provider: string
+  model: string
+  baseUrl: string | null
+  /** Omit to keep the stored key when editing; never read back from the server. */
+  apiKey?: string
+}
+
+export interface ProbeOutcome {
+  ok: boolean
+  latencyMs: number
+  code: string | null
+  model: string | null
+}
+
+const patch = (body: unknown): RequestInit => ({ method: 'PATCH', body: JSON.stringify(body) })
+
+export const modelsApi = {
+  list: () => apiFetch<ModelsResponse>('/ai/admin/models'),
+  create: (input: ModelInput) => apiFetch<{ profile: ModelProfile }>('/ai/admin/models', json(input)),
+  update: (id: string, input: Partial<ModelInput>) => apiFetch<{ profile: ModelProfile }>(`/ai/admin/models/${id}`, patch(input)),
+  remove: (id: string) => apiFetch<{ status: string }>(`/ai/admin/models/${id}`, { method: 'DELETE' }),
+  activate: (id: string) => apiFetch<{ profile: ModelProfile }>(`/ai/admin/models/${id}/activate`, json({})),
+  useEnvironment: () => apiFetch<{ status: string }>('/ai/admin/models/use-environment', json({})),
+  test: (id: string) => apiFetch<ProbeOutcome & { profile: ModelProfile }>(`/ai/admin/models/${id}/test`, json({})),
+  testDraft: (input: ModelInput, existingId?: string) => apiFetch<ProbeOutcome>('/ai/admin/models/test', json({ ...input, existingId })),
+}
+
 export const isActiveStatus = (status: TaskStatus): boolean => !isFinished(status)

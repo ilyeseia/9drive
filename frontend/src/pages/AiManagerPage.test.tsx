@@ -22,6 +22,9 @@ const OVERVIEW = {
   ],
 }
 
+const MODELS = { profiles: [], activeId: null, environment: OVERVIEW.config, effective: OVERVIEW.config }
+const respond = (path: string) => (path.startsWith('/ai/admin/models') ? MODELS : OVERVIEW)
+
 beforeEach(() => {
   window.localStorage.clear()
   api.apiFetch.mockReset()
@@ -30,12 +33,13 @@ afterEach(cleanup)
 
 describe('AiManagerPage', () => {
   it('shows config without the key value, usage and tasks', async () => {
-    api.apiFetch.mockResolvedValue(OVERVIEW)
+    api.apiFetch.mockImplementation(async (path: string) => respond(path))
     render(<AiManagerPage />)
     expect(await screen.findByText('llm.example.net')).toBeTruthy()
     expect(screen.getByText('Configured')).toBeTruthy()
     expect(screen.getByText('list_storage_accounts')).toBeTruthy()
     expect(screen.getByText('12345678')).toBeTruthy()
+    expect(await screen.findByRole('button', { name: 'Add model' })).toBeTruthy()
   })
 
   it('shows a forbidden notice to non-admins', async () => {
@@ -45,14 +49,14 @@ describe('AiManagerPage', () => {
   })
 
   it('runs the connection test and reports the result', async () => {
-    api.apiFetch.mockImplementation(async (path: string) => (path.endsWith('/admin/test') ? { ok: true, latencyMs: 87, model: 'auto' } : OVERVIEW))
+    api.apiFetch.mockImplementation(async (path: string) => (path.endsWith('/admin/test') ? { ok: true, latencyMs: 87, model: 'auto' } : respond(path)))
     render(<AiManagerPage />)
     await userEvent.click(await screen.findByRole('button', { name: 'Test connection' }))
     expect(await screen.findByText('Connected (87 ms)')).toBeTruthy()
   })
 
   it('stops only an active task', async () => {
-    api.apiFetch.mockImplementation(async (path: string) => (path.includes('/cancel') ? { task: {} } : OVERVIEW))
+    api.apiFetch.mockImplementation(async (path: string) => (path.includes('/cancel') ? { task: {} } : respond(path)))
     render(<AiManagerPage />)
     const stops = await screen.findAllByRole('button', { name: /Stop/ })
     expect(stops).toHaveLength(1)

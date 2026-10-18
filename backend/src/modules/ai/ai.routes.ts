@@ -10,11 +10,12 @@ import { requireAuth, requireRole, type AuthRequest } from '../../middleware/aut
 import { aiMessageLimiter, aiReadLimiter, aiToolRunLimiter } from '../../middleware/rate-limit.middleware.js';
 import { createAuditLog } from '../../utils/audit.js';
 import { AgentError } from './agent.js';
-import { adminAiConfig, getAiConfig, publicAiStatus } from './config.js';
+import { adminAiConfig, getAiConfig, loadAiConfig, publicAiStatus } from './config.js';
+import { createProfileSchema, ProfileError, updateProfileSchema } from './profiles.js';
 import { createModelProvider, ModelError } from './providers/index.js';
 import { requiresConfirmation } from './policy.js';
 import { cleanText, toModelJson } from './sanitize.js';
-import { getAgent, getAgentStore, getToolRegistry } from './runtime.js';
+import { getAgent, getAgentStore, getProfileService, getToolRegistry } from './runtime.js';
 import { parseToolArgs, runTool } from './tools/registry.js';
 import type { ConfirmationRecord, ExecutionRecord, MessageRecord, TaskRecord } from './store.js';
 
@@ -32,6 +33,7 @@ function limitBody(req: Request, res: Response, next: NextFunction) {
 }
 
 function fail(res: Response, next: NextFunction, error: unknown) {
+  if (error instanceof ProfileError) return res.status(error.status).json({ code: error.code, message: error.message });
   if (error instanceof AgentError) return res.status(error.status).json({ code: error.code, message: error.message });
   return next(error);
 }
@@ -140,6 +142,100 @@ aiRouter.post('/admin/test', aiToolRunLimiter, requireRole('admin'), async (req:
   } catch (error) {
     if (ModelError.is(error)) return res.status(200).json({ ok: false, latencyMs: Date.now() - started, code: error.code });
     return next(error);
+  }
+});
+
+/** Model management. Keys are write-only: they are encrypted at rest and never returned. */
+const profileId = (req: Request) => idParam.safeParse(req.params.id);
+const notFound = (res: Response) => res.status(404).json({ code: 'NOT_FOUND', message: 'Model not found.' });
+
+aiRouter.get('/admin/models', aiReadLimiter, requireRole('admin'), async (_req: AuthRequest, res, next) => {
+  try {
+    res.json({ ...(await getProfileService().list()), environment: adminAiConfig(loadAiConfig(process.env)), effective: adminAiConfig(getAiConfig()) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+aiRouter.post('/admin/models', aiReadLimiter, requireRole('admin'), limitBody, async (req: AuthRequest, res, next) => {
+  try {
+    const input = createProfileSchema.parse(req.body ?? {});
+    const profile = await getProfileService().create(input);
+    await createAuditLog(req.user!.id, 'AI_MODEL_CREATED', 'ai_model_profile', profile.id, { provider: profile.provider, model: profile.model });
+    res.status(201).json({ profile });
+  } catch (error) {
+    fail(res, next, error);
+  }
+});
+
+// Registered before /admin/models/:id/* so "test" is never read as an id.
+aiRouter.post('/admin/models/test', aiToolRunLimiter, requireRole('admin'), limitBody, async (req: AuthRequest, res, next) => {
+  try {
+    const body = createProfileSchema.extend({ existingId: z.string().uuid().optional() }).parse(req.body ?? {});
+    const result = await getProfileService().testDraft(body, body.existingId);
+    await createAuditLog(req.user!.id, 'AI_MODEL_TESTED', 'ai_model_profile', body.existingId ?? 'draft', { ok: result.ok, code: result.code });
+    res.json(result);
+  } catch (error) {
+    fail(res, next, error);
+  }
+});
+
+aiRouter.post('/admin/models/use-environment', aiReadLimiter, requireRole('admin'), async (req: AuthRequest, res, next) => {
+  try {
+    await getProfileService().useEnvironment();
+    await createAuditLog(req.user!.id, 'AI_MODEL_USE_ENVIRONMENT', 'ai_model_profile', 'environment');
+    res.json({ status: 'ok', effective: adminAiConfig(getAiConfig()) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+aiRouter.patch('/admin/models/:id', aiReadLimiter, requireRole('admin'), limitBody, async (req: AuthRequest, res, next) => {
+  try {
+    const id = profileId(req);
+    if (!id.success) return notFound(res);
+    const input = updateProfileSchema.parse(req.body ?? {});
+    const profile = await getProfileService().update(id.data, input);
+    await createAuditLog(req.user!.id, 'AI_MODEL_UPDATED', 'ai_model_profile', id.data);
+    return res.json({ profile, effective: adminAiConfig(getAiConfig()) });
+  } catch (error) {
+    return fail(res, next, error);
+  }
+});
+
+aiRouter.delete('/admin/models/:id', aiReadLimiter, requireRole('admin'), async (req: AuthRequest, res, next) => {
+  try {
+    const id = profileId(req);
+    if (!id.success) return notFound(res);
+    await getProfileService().remove(id.data);
+    await createAuditLog(req.user!.id, 'AI_MODEL_DELETED', 'ai_model_profile', id.data);
+    return res.json({ status: 'ok', effective: adminAiConfig(getAiConfig()) });
+  } catch (error) {
+    return fail(res, next, error);
+  }
+});
+
+aiRouter.post('/admin/models/:id/activate', aiReadLimiter, requireRole('admin'), async (req: AuthRequest, res, next) => {
+  try {
+    const id = profileId(req);
+    if (!id.success) return notFound(res);
+    const profile = await getProfileService().activate(id.data);
+    await createAuditLog(req.user!.id, 'AI_MODEL_ACTIVATED', 'ai_model_profile', id.data, { provider: profile.provider, model: profile.model });
+    return res.json({ profile, effective: adminAiConfig(getAiConfig()) });
+  } catch (error) {
+    return fail(res, next, error);
+  }
+});
+
+aiRouter.post('/admin/models/:id/test', aiToolRunLimiter, requireRole('admin'), async (req: AuthRequest, res, next) => {
+  try {
+    const id = profileId(req);
+    if (!id.success) return notFound(res);
+    const result = await getProfileService().test(id.data);
+    await createAuditLog(req.user!.id, 'AI_MODEL_TESTED', 'ai_model_profile', id.data, { ok: result.ok, code: result.code });
+    return res.json(result);
+  } catch (error) {
+    return fail(res, next, error);
   }
 });
 
