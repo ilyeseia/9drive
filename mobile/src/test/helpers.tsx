@@ -58,7 +58,9 @@ export function makeHarness(handler: Handler, opts: { signedIn?: boolean; locale
   });
   const stored: StoredSession | null = opts.signedIn ? { accessToken: 'A', refreshToken: 'R', user: TEST_USER } : null;
   const store = new MemoryTokenStore(stored);
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity }, mutations: { retry: false } } });
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: Infinity }, mutations: { retry: false, networkMode: 'always' } },
+  });
   const session = new SessionManager(client, store, { onCleared: () => queryClient.clear() });
   const lock = new LockController({
     authenticator: { availability: async () => 'ok', authenticate: async () => true },

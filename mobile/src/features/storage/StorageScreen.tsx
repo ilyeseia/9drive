@@ -8,6 +8,7 @@ import type { StorageStackParamList } from '../../navigation/StorageStack';
 import { spacing, useTheme } from '../../theme/theme';
 import { AppText, Button, Card, Screen, StateView } from '../../ui/components';
 import { ProgressBar } from '../../ui/extra';
+import { FreshnessNote } from '../../ui/Offline';
 import { healthSeverity, providerLabel, quotaOf, statusSeverity, summarize, type Severity } from './model';
 import { useAccounts, useCatalog, useStorageActions } from './queries';
 
@@ -33,6 +34,7 @@ export function StorageScreen() {
             <AppText variant="title" accessibilityRole="header">
               {t('storageTitle')}
             </AppText>
+            <FreshnessNote updatedAt={accounts.dataUpdatedAt} stale={accounts.isError || accounts.fetchStatus === 'paused'} />
             {summary.counted > 0 ? (
               <Card style={{ gap: spacing.xs }}>
                 <AppText style={{ fontWeight: '700' }}>

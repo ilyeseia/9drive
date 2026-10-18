@@ -5,6 +5,8 @@ import { useTheme } from '../theme/theme';
 import { SettingsScreen } from '../features/settings/SettingsScreen';
 import { PlaceholderScreen } from '../features/PlaceholderScreen';
 import { FilesStack } from './FilesStack';
+import { OfflineBanner } from '../ui/Offline';
+import { View } from 'react-native';
 import { StorageStack } from './StorageStack';
 
 export type TabParamList = {
@@ -34,26 +36,29 @@ export function RootNavigator() {
 
   return (
     <NavigationContainer theme={navTheme}>
-      <Tab.Navigator
-        screenOptions={{ headerShown: false, tabBarActiveTintColor: colors.primary, tabBarInactiveTintColor: colors.textMuted }}
-      >
-        <Tab.Screen name="Files" options={{ title: t('tabFiles'), tabBarAccessibilityLabel: t('tabFiles') }} component={FilesStack} />
-        <Tab.Screen
-          name="Storage"
-          options={{ title: t('tabStorage'), tabBarAccessibilityLabel: t('tabStorage') }}
-          component={StorageStack}
-        />
-        <Tab.Screen
-          name="Assistant"
-          options={{ title: t('tabAssistant'), tabBarAccessibilityLabel: t('tabAssistant') }}
-          component={PlaceholderScreen}
-        />
-        <Tab.Screen
-          name="Settings"
-          options={{ title: t('tabSettings'), tabBarAccessibilityLabel: t('tabSettings') }}
-          component={SettingsScreen}
-        />
-      </Tab.Navigator>
+      <View style={{ flex: 1 }}>
+        <OfflineBanner />
+        <Tab.Navigator
+          screenOptions={{ headerShown: false, tabBarActiveTintColor: colors.primary, tabBarInactiveTintColor: colors.textMuted }}
+        >
+          <Tab.Screen name="Files" options={{ title: t('tabFiles'), tabBarAccessibilityLabel: t('tabFiles') }} component={FilesStack} />
+          <Tab.Screen
+            name="Storage"
+            options={{ title: t('tabStorage'), tabBarAccessibilityLabel: t('tabStorage') }}
+            component={StorageStack}
+          />
+          <Tab.Screen
+            name="Assistant"
+            options={{ title: t('tabAssistant'), tabBarAccessibilityLabel: t('tabAssistant') }}
+            component={PlaceholderScreen}
+          />
+          <Tab.Screen
+            name="Settings"
+            options={{ title: t('tabSettings'), tabBarAccessibilityLabel: t('tabSettings') }}
+            component={SettingsScreen}
+          />
+        </Tab.Navigator>
+      </View>
     </NavigationContainer>
   );
 }

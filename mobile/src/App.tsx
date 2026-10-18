@@ -1,6 +1,6 @@
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query';
+import { QueryClientProvider, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
 import { I18nProvider, useI18n } from './i18n/I18nProvider';
 import { ThemeProvider, useTheme } from './theme/theme';
@@ -11,6 +11,11 @@ import type { MessageKey } from './i18n/messages';
 import { ServicesProvider, createServices, useServices, useSession } from './app/services';
 import { AuthScreen } from './features/auth/AuthScreen';
 import { LockGate } from './features/auth/LockGate';
+import { OfflineCacheController } from './app/OfflineCacheController';
+import { initOnlineManager } from './core/network';
+import { createQueryClient } from './app/queryClient';
+
+initOnlineManager();
 
 const CONFIG_KEYS: Record<ConfigError['reason'], { title: MessageKey; body: MessageKey }> = {
   missing: { title: 'configMissingTitle', body: 'configMissingBody' },
@@ -38,6 +43,7 @@ function SessionGate() {
   if (state.status === 'signedOut') return <AuthScreen reason={state.reason} />;
   return (
     <LockGate onSignOut={() => void session.signOut()}>
+      <OfflineCacheController />
       <RootNavigator />
     </LockGate>
   );
@@ -72,9 +78,7 @@ function Shell() {
 }
 
 export default function App() {
-  // One QueryClient per app instance. Defaults are conservative: no retry here, because the API client already
-  // retries safe requests with bounded backoff; refetch-on-focus is explicit per screen.
-  const [queryClient] = useState(() => new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 15_000 } } }));
+  const [queryClient] = useState(createQueryClient);
   return (
     <SafeAreaProvider>
       <ThemeProvider>

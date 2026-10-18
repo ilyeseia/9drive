@@ -9,6 +9,7 @@ import { SecureTokenStore, type TokenStore } from '../auth/tokenStore';
 import { TransferManager, type TransferItem } from '../transfers/manager';
 import { DeviceFileSource, chunkFetch, clearDownloadCache, createDownloader, prefsTransferPersistence } from '../transfers/device';
 import { UploadRunner, createUploadApi } from '../transfers/upload';
+import { clearOfflineCache } from '../core/offlineCache';
 
 export interface Services {
   client: ApiClient;
@@ -49,6 +50,7 @@ export function createServices(apiBaseUrl: string, queryClient: QueryClient, ove
       queryClient.clear();
       transfers.reset();
       clearDownloadCache();
+      void clearOfflineCache();
       lock.reset();
     },
   });

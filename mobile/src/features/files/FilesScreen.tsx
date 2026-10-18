@@ -13,6 +13,7 @@ import { pickDocuments, pickPhotos, takePhoto, type PickResult } from '../../tra
 import { fileFamily } from '../../transfers/names';
 import { AppText, Button, Card, Screen, StateView } from '../../ui/components';
 import { ActionSheet, Chip, PromptModal } from '../../ui/extra';
+import { FreshnessNote } from '../../ui/Offline';
 import type { FilesStackParamList } from '../../navigation/FilesStack';
 import { FolderPicker } from './FolderPicker';
 import { useFileActions, useFiles, useFolders } from './queries';
@@ -144,6 +145,10 @@ export function FilesScreen() {
         </Pressable>
       </View>
 
+      <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+        <Chip label={t('sharedLinks')} onPress={() => navigation.navigate('SharedLinks')} />
+      </View>
+
       <TextInput
         accessibilityLabel={t('searchFiles')}
         placeholder={t('searchFiles')}
@@ -220,6 +225,7 @@ export function FilesScreen() {
           </AppText>
         </Card>
       ) : null}
+      <FreshnessNote updatedAt={files.dataUpdatedAt} stale={files.isError || files.fetchStatus === 'paused'} />
       {files.truncated ? (
         <AppText variant="caption" muted>
           {t('resultsTruncated')}

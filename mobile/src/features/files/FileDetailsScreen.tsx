@@ -12,6 +12,7 @@ import { progressFraction } from '../../transfers/manager';
 import { AppText, Button, Card, Screen, StateView } from '../../ui/components';
 import { PromptModal, ProgressBar } from '../../ui/extra';
 import type { FilesStackParamList } from '../../navigation/FilesStack';
+import { SharePanel } from '../sharing/SharePanel';
 import { FolderPicker } from './FolderPicker';
 import { useFileActions, useFileDetail } from './queries';
 
@@ -127,6 +128,8 @@ export function FileDetailsScreen() {
             {t('transferFailed')} — {t('actionFailed')}
           </AppText>
         ) : null}
+
+        <SharePanel fileId={fileId} fileName={file.name} />
 
         <View style={{ gap: spacing.sm }}>
           <Button label={t('rename')} variant="secondary" onPress={() => setRenameOpen(true)} />
