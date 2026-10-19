@@ -1,6 +1,7 @@
 import { ScrollView, View } from 'react-native';
 import Constants from 'expo-constants';
-import { Screen, AppText, Button, Card } from '../../ui/components';
+import { Screen, AppText } from '../../ui/components';
+import { ScreenHeader, SectionCard, Segmented } from '../../ui/extra';
 import { useI18n } from '../../i18n/I18nProvider';
 import { LOCALES, LOCALE_NAMES } from '../../i18n/messages';
 import { useTheme, spacing, type ThemeMode } from '../../theme/theme';
@@ -31,60 +32,38 @@ export function SettingsScreen() {
   return (
     <Screen padded={false}>
       <ScrollView contentContainerStyle={{ padding: spacing.lg, gap: spacing.lg }}>
-        <AppText variant="title" accessibilityRole="header">
-          {t('settingsTitle')}
-        </AppText>
+        <ScreenHeader title={t('settingsTitle')} />
 
         <AccountSection />
 
         <OfflineSection />
 
-        <Card style={{ gap: spacing.md }}>
-          <AppText variant="heading">{t('language')}</AppText>
-          <View style={{ gap: spacing.sm }}>
-            {LOCALES.map((code) => (
-              <Button
-                key={code}
-                label={LOCALE_NAMES[code]}
-                variant={code === locale ? 'primary' : 'secondary'}
-                onPress={() => setLocale(code)}
-                accessibilityHint={code === locale ? undefined : LOCALE_NAMES[code]}
-              />
-            ))}
-          </View>
+        <SectionCard icon="globe" title={t('language')} tone="accent">
+          <Segmented options={LOCALES.map((code) => ({ value: code, label: LOCALE_NAMES[code] }))} value={locale} onChange={setLocale} />
           {needsRestart ? (
             <AppText variant="caption" accessibilityRole="alert" style={{ color: colors.warning }}>
               {t('restartForDirection')}
             </AppText>
           ) : null}
-        </Card>
+        </SectionCard>
 
-        <Card style={{ gap: spacing.md }}>
-          <AppText variant="heading">{t('theme')}</AppText>
-          <View style={{ gap: spacing.sm }}>
-            {MODES.map((entry) => (
-              <Button
-                key={entry.mode}
-                label={t(entry.key)}
-                variant={entry.mode === mode ? 'primary' : 'secondary'}
-                onPress={() => setMode(entry.mode)}
-              />
-            ))}
-          </View>
-        </Card>
+        <SectionCard icon="sliders" title={t('theme')}>
+          <Segmented options={MODES.map((entry) => ({ value: entry.mode, label: t(entry.key) }))} value={mode} onChange={setMode} />
+        </SectionCard>
 
-        <Card style={{ gap: spacing.xs }}>
-          <AppText variant="heading">{t('server')}</AppText>
-          <AppText muted>{isolate(host)}</AppText>
-          {!isConfigError(config) && config.insecureTransport ? (
-            <AppText variant="caption" style={{ color: colors.warning }}>
-              {t('serverInsecure')}
+        <SectionCard icon="server" title={t('server')} tone="neutral">
+          <View style={{ gap: spacing.xs }}>
+            <AppText style={{ fontWeight: '600' }}>{isolate(host)}</AppText>
+            {!isConfigError(config) && config.insecureTransport ? (
+              <AppText variant="caption" style={{ color: colors.warning }}>
+                {t('serverInsecure')}
+              </AppText>
+            ) : null}
+            <AppText variant="caption" muted>
+              {t('version')}: {Constants.expoConfig?.version ?? '—'}
             </AppText>
-          ) : null}
-          <AppText variant="caption" muted>
-            {t('version')}: {Constants.expoConfig?.version ?? '—'}
-          </AppText>
-        </Card>
+          </View>
+        </SectionCard>
       </ScrollView>
     </Screen>
   );

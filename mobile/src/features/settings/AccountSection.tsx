@@ -6,7 +6,8 @@ import { isolate } from '../../i18n/format';
 import { useI18n } from '../../i18n/I18nProvider';
 import type { MessageKey } from '../../i18n/messages';
 import { spacing, useTheme } from '../../theme/theme';
-import { AppText, Button, Card } from '../../ui/components';
+import { AppText, Button } from '../../ui/components';
+import { SectionCard, Segmented } from '../../ui/extra';
 
 const TIMEOUT_LABEL: Record<(typeof TIMEOUT_CHOICES)[number], MessageKey> = {
   0: 'lockImmediately',
@@ -61,23 +62,22 @@ export function AccountSection() {
 
   return (
     <>
-      <Card style={{ gap: spacing.xs }}>
-        <AppText variant="heading">{t('account')}</AppText>
-        <AppText>{isolate(state.user.name)}</AppText>
-        <AppText muted>{isolate(state.user.email)}</AppText>
-        <View style={{ marginTop: spacing.md }}>
-          <Button label={t('signOut')} variant="danger" onPress={confirmSignOut} />
+      <SectionCard icon="user" title={t('account')}>
+        <View style={{ gap: spacing.xs }}>
+          <AppText style={{ fontWeight: '700', fontSize: 17 }}>{isolate(state.user.name)}</AppText>
+          <AppText muted>{isolate(state.user.email)}</AppText>
         </View>
-      </Card>
+        <Button label={t('signOut')} variant="danger" compact onPress={confirmSignOut} />
+      </SectionCard>
 
-      <Card style={{ gap: spacing.md }}>
-        <AppText variant="heading">{t('lockTitle')}</AppText>
+      <SectionCard icon="shield" title={t('lockTitle')} tone="success">
         <AppText muted variant="caption">
           {t('lockDescription')}
         </AppText>
         <Button
           label={t(lockState.settings.enabled ? 'lockDisable' : 'lockEnable')}
-          variant="secondary"
+          variant={lockState.settings.enabled ? 'secondary' : 'primary'}
+          icon="lock"
           busy={busy}
           onPress={() => void toggleLock()}
         />
@@ -89,17 +89,14 @@ export function AccountSection() {
         {lockState.settings.enabled ? (
           <View style={{ gap: spacing.sm }}>
             <AppText variant="label">{t('lockTimeout')}</AppText>
-            {TIMEOUT_CHOICES.map((seconds) => (
-              <Button
-                key={seconds}
-                label={t(TIMEOUT_LABEL[seconds])}
-                variant={lockState.settings.timeoutSec === seconds ? 'primary' : 'secondary'}
-                onPress={() => void lock.setTimeout(seconds)}
-              />
-            ))}
+            <Segmented
+              options={TIMEOUT_CHOICES.map((seconds) => ({ value: seconds, label: t(TIMEOUT_LABEL[seconds]) }))}
+              value={lockState.settings.timeoutSec}
+              onChange={(seconds) => void lock.setTimeout(seconds)}
+            />
           </View>
         ) : null}
-      </Card>
+      </SectionCard>
     </>
   );
 }

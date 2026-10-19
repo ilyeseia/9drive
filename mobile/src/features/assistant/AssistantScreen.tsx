@@ -10,6 +10,8 @@ import type { MessageKey } from '../../i18n/messages';
 import type { AssistantStackParamList } from '../../navigation/AssistantStack';
 import { MIN_TARGET, radius, spacing, useTheme } from '../../theme/theme';
 import { AppText, Button, Card, Screen, StateView } from '../../ui/components';
+import { IconButton, IconTile, ScreenHeader } from '../../ui/extra';
+import { Icon } from '../../ui/Icon';
 import { Markdown } from '../../ui/Markdown';
 import { ConfirmationCard } from './ConfirmationCard';
 import { useAssistantChat } from './useChat';
@@ -108,18 +110,23 @@ export function AssistantScreen({ pollMs = 1000 }: { pollMs?: number }) {
   return (
     <Screen padded={false}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', padding: spacing.lg, gap: spacing.sm }}>
-          <AppText variant="title" accessibilityRole="header" style={{ flex: 1 }}>
-            {t('aiTitle')}
-          </AppText>
-          <Button label={t('aiConversations')} variant="secondary" onPress={() => navigation.navigate('Conversations')} />
-          <Button
-            label={t('aiNewChat')}
-            variant="secondary"
-            onPress={() => {
-              setCreatedId(null);
-              navigation.setParams({ conversationId: undefined });
-            }}
+        <View style={{ padding: spacing.lg, paddingBottom: spacing.sm }}>
+          <ScreenHeader
+            title={t('aiTitle')}
+            right={
+              <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+                <IconButton icon="chat" tone="neutral" label={t('aiConversations')} onPress={() => navigation.navigate('Conversations')} />
+                <IconButton
+                  icon="plus"
+                  tone="neutral"
+                  label={t('aiNewChat')}
+                  onPress={() => {
+                    setCreatedId(null);
+                    navigation.setParams({ conversationId: undefined });
+                  }}
+                />
+              </View>
+            }
           />
         </View>
 
@@ -144,8 +151,13 @@ export function AssistantScreen({ pollMs = 1000 }: { pollMs?: number }) {
               contentContainerStyle={{ padding: spacing.lg, gap: spacing.md, flexGrow: 1 }}
               ListEmptyComponent={
                 chat.loaded ? (
-                  <View style={{ gap: spacing.sm }}>
-                    <AppText muted>{t('aiTryAsking')}</AppText>
+                  <View style={{ gap: spacing.md }}>
+                    <View style={{ alignItems: 'center', gap: spacing.md, paddingVertical: spacing.xl }}>
+                      <IconTile icon="chat" tone="primary" size={72} />
+                      <AppText muted style={{ textAlign: 'center' }}>
+                        {t('aiTryAsking')}
+                      </AppText>
+                    </View>
                     {EXAMPLES.map((key) => (
                       <Pressable
                         key={key}
@@ -154,13 +166,18 @@ export function AssistantScreen({ pollMs = 1000 }: { pollMs?: number }) {
                         onPress={() => setInput(t(key))}
                         style={{
                           minHeight: MIN_TARGET,
-                          justifyContent: 'center',
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          gap: spacing.md,
                           padding: spacing.md,
-                          borderRadius: radius.md,
+                          borderRadius: radius.lg,
                           backgroundColor: colors.surface,
+                          borderWidth: 1,
+                          borderColor: colors.border,
                         }}
                       >
-                        <AppText>{t(key)}</AppText>
+                        <AppText style={{ flex: 1 }}>{t(key)}</AppText>
+                        <Icon name="plus" size={18} color={colors.primary} />
                       </Pressable>
                     ))}
                   </View>
@@ -194,15 +211,37 @@ export function AssistantScreen({ pollMs = 1000 }: { pollMs?: number }) {
             />
 
             {errorText ? (
-              <View style={{ paddingHorizontal: spacing.lg, gap: spacing.sm }}>
-                <AppText accessibilityRole="alert" style={{ color: colors.danger }}>
-                  {errorText}
-                </AppText>
+              <View style={{ paddingHorizontal: spacing.lg, paddingBottom: spacing.sm, gap: spacing.sm }}>
+                <View
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'flex-start',
+                    gap: spacing.sm,
+                    padding: spacing.md,
+                    borderRadius: radius.md,
+                    backgroundColor: `${colors.danger}1F`,
+                    borderWidth: 1,
+                    borderColor: `${colors.danger}66`,
+                  }}
+                >
+                  <Icon name="alert" size={18} color={colors.danger} />
+                  <AppText accessibilityRole="alert" variant="caption" style={{ color: colors.danger, flex: 1 }}>
+                    {errorText}
+                  </AppText>
+                </View>
                 {chat.stalled ? <Button label={t('aiRetry')} variant="secondary" onPress={chat.resume} /> : null}
               </View>
             ) : null}
 
-            <View style={{ padding: spacing.md, gap: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border }}>
+            <View
+              style={{
+                padding: spacing.md,
+                gap: spacing.sm,
+                borderTopWidth: 1,
+                borderTopColor: colors.border,
+                backgroundColor: colors.surface,
+              }}
+            >
               <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: spacing.sm }}>
                 <TextInput
                   accessibilityLabel={t('aiPlaceholder')}
@@ -220,18 +259,24 @@ export function AssistantScreen({ pollMs = 1000 }: { pollMs?: number }) {
                     minHeight: MIN_TARGET,
                     borderWidth: 1,
                     borderColor: colors.border,
-                    borderRadius: radius.md,
-                    paddingHorizontal: spacing.md,
+                    borderRadius: 26,
+                    paddingHorizontal: spacing.lg,
                     paddingVertical: spacing.sm,
                     color: colors.text,
-                    backgroundColor: colors.surface,
+                    backgroundColor: colors.surfaceAlt,
                     fontSize: 16,
                   }}
                 />
                 {chat.busy || chat.awaiting ? (
-                  <Button label={t('aiStop')} variant="secondary" onPress={() => void chat.cancel()} busy={chat.deciding} />
+                  <IconButton icon="stop" tone="neutral" label={t('aiStop')} onPress={() => void chat.cancel()} busy={chat.deciding} />
                 ) : (
-                  <Button label={t('aiSend')} onPress={() => void submit()} disabled={input.trim() === '' || locked} busy={chat.sending} />
+                  <IconButton
+                    icon="send"
+                    label={t('aiSend')}
+                    onPress={() => void submit()}
+                    disabled={input.trim() === '' || locked}
+                    busy={chat.sending}
+                  />
                 )}
               </View>
               <AppText variant="caption" muted>
@@ -252,13 +297,18 @@ function Bubble({ message }: { message: ChatMessage }) {
   return (
     <View style={{ alignItems: mine ? 'flex-end' : 'flex-start' }}>
       <View
-        style={{
-          maxWidth: '90%',
-          padding: spacing.md,
-          borderRadius: radius.lg,
-          backgroundColor: mine ? colors.primary : colors.surface,
-          gap: spacing.xs,
-        }}
+        style={[
+          {
+            maxWidth: '90%',
+            padding: spacing.md,
+            borderRadius: radius.xl,
+            backgroundColor: mine ? colors.primary : colors.surface,
+            borderWidth: mine ? 0 : 1,
+            borderColor: colors.border,
+            gap: spacing.xs,
+          },
+          mine ? { borderBottomEndRadius: 6 } : { borderBottomStartRadius: 6 },
+        ]}
       >
         <AppText variant="caption" style={{ color: mine ? colors.onPrimary : colors.textMuted, fontWeight: '700' }}>
           {mine ? t('aiYou') : t('aiAssistantName')}

@@ -7,7 +7,7 @@ import { formatBytes, formatDate, isolate } from '../../i18n/format';
 import type { StorageStackParamList } from '../../navigation/StorageStack';
 import { spacing, useTheme } from '../../theme/theme';
 import { AppText, Button, Card, Screen, StateView } from '../../ui/components';
-import { ProgressBar } from '../../ui/extra';
+import { IconTile, Pill, ProgressBar, ScreenHeader, type Tone } from '../../ui/extra';
 import { FreshnessNote } from '../../ui/Offline';
 import { healthSeverity, providerLabel, quotaOf, statusSeverity, summarize, type Severity } from './model';
 import { useAccounts, useCatalog, useStorageActions } from './queries';
@@ -31,15 +31,16 @@ export function StorageScreen() {
         refreshControl={<RefreshControl refreshing={accounts.isRefetching} onRefresh={() => void accounts.refetch()} />}
         ListHeaderComponent={
           <View style={{ gap: spacing.md, paddingBottom: spacing.sm }}>
-            <AppText variant="title" accessibilityRole="header">
-              {t('storageTitle')}
-            </AppText>
+            <ScreenHeader title={t('storageTitle')} />
             <FreshnessNote updatedAt={accounts.dataUpdatedAt} stale={accounts.isError || accounts.fetchStatus === 'paused'} />
             {summary.counted > 0 ? (
-              <Card style={{ gap: spacing.xs }}>
-                <AppText style={{ fontWeight: '700' }}>
-                  {t('storageSummary', { used: formatBytes(summary.used, locale), total: formatBytes(summary.total, locale) })}
-                </AppText>
+              <Card style={{ gap: spacing.sm, padding: spacing.xl }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
+                  <IconTile icon="cloud" tone="primary" size={48} />
+                  <AppText style={{ fontWeight: '800', fontSize: 17, flex: 1 }}>
+                    {t('storageSummary', { used: formatBytes(summary.used, locale), total: formatBytes(summary.total, locale) })}
+                  </AppText>
+                </View>
                 <ProgressBar fraction={summary.total > 0 ? summary.used / summary.total : 0} label={t('storageTitle')} />
                 {summary.skipped > 0 ? (
                   <AppText variant="caption" muted>
@@ -49,8 +50,15 @@ export function StorageScreen() {
               </Card>
             ) : null}
             <View style={{ flexDirection: 'row', gap: spacing.sm }}>
-              <Button label={t('routing')} variant="secondary" onPress={() => navigation.navigate('Routing')} style={{ flex: 1 }} />
-              <Button label={t('addAccount')} onPress={() => navigation.navigate('AddAccount')} style={{ flex: 1 }} />
+              <Button
+                label={t('routing')}
+                variant="secondary"
+                icon="sliders"
+                compact
+                onPress={() => navigation.navigate('Routing')}
+                style={{ flex: 1 }}
+              />
+              <Button label={t('addAccount')} icon="plus" compact onPress={() => navigation.navigate('AddAccount')} style={{ flex: 1 }} />
             </View>
           </View>
         }
@@ -68,6 +76,8 @@ export function StorageScreen() {
     </Screen>
   );
 }
+
+const SEVERITY_TONE: Record<Severity, Tone> = { ok: 'success', bad: 'danger', warn: 'warning', unknown: 'neutral' };
 
 const SEVERITY_COLOR = (severity: Severity, c: ReturnType<typeof useTheme>['colors']) =>
   severity === 'ok' ? c.success : severity === 'bad' ? c.danger : severity === 'warn' ? c.warning : c.textMuted;
@@ -112,9 +122,10 @@ function AccountCard({ account, label }: { account: AccountView; label: string }
 
   return (
     <Card style={{ gap: spacing.sm }}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
+        <IconTile icon="cloud" tone={SEVERITY_TONE[statusSev]} size={44} />
         <View style={{ flex: 1 }}>
-          <AppText style={{ fontWeight: '700' }} numberOfLines={1}>
+          <AppText style={{ fontWeight: '800' }} numberOfLines={1}>
             {isolate(name)}
           </AppText>
           <AppText variant="caption" muted numberOfLines={1}>
@@ -122,9 +133,7 @@ function AccountCard({ account, label }: { account: AccountView; label: string }
             {account.experimental ? ` · ${t('experimentalBadge')}` : ''}
           </AppText>
         </View>
-        <AppText variant="label" style={{ color: SEVERITY_COLOR(statusSev, colors) }}>
-          {statusText}
-        </AppText>
+        <Pill label={statusText} tone={SEVERITY_TONE[statusSev]} />
       </View>
 
       {quota.kind === 'known' ? <ProgressBar fraction={quota.fraction} label={name} /> : null}
@@ -174,19 +183,25 @@ function AccountCard({ account, label }: { account: AccountView; label: string }
       ) : null}
 
       <View style={{ gap: spacing.sm }}>
-        <Button
-          label={t('checkHealth')}
-          variant="secondary"
-          busy={actions.checkHealth.isPending}
-          onPress={() => actions.checkHealth.mutate(account.id)}
-        />
-        <Button
-          label={t('refreshQuota')}
-          variant="secondary"
-          busy={actions.refreshQuota.isPending}
-          onPress={() => actions.refreshQuota.mutate(account.id)}
-        />
-        <Button label={t('disconnect')} variant="danger" busy={actions.disconnect.isPending} onPress={confirmDisconnect} />
+        <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+          <Button
+            compact
+            label={t('checkHealth')}
+            variant="secondary"
+            busy={actions.checkHealth.isPending}
+            onPress={() => actions.checkHealth.mutate(account.id)}
+            style={{ flex: 1 }}
+          />
+          <Button
+            compact
+            label={t('refreshQuota')}
+            variant="secondary"
+            busy={actions.refreshQuota.isPending}
+            onPress={() => actions.refreshQuota.mutate(account.id)}
+            style={{ flex: 1 }}
+          />
+        </View>
+        <Button label={t('disconnect')} variant="danger" compact busy={actions.disconnect.isPending} onPress={confirmDisconnect} />
       </View>
     </Card>
   );

@@ -167,10 +167,12 @@ export interface ButtonProps {
   disabled?: boolean;
   accessibilityHint?: string;
   icon?: IconName;
+  /** Smaller horizontal padding for toolbars where several buttons share a row (still >= 48dp tall). */
+  compact?: boolean;
   style?: StyleProp<ViewStyle>;
 }
 
-export function Button({ label, onPress, variant = 'primary', busy, disabled, accessibilityHint, icon, style }: ButtonProps) {
+export function Button({ label, onPress, variant = 'primary', busy, disabled, accessibilityHint, icon, compact, style }: ButtonProps) {
   const { colors } = useTheme();
   const inactive = disabled || busy;
   const background = variant === 'primary' ? colors.primary : variant === 'danger' ? colors.danger : colors.surfaceAlt;
@@ -185,8 +187,8 @@ export function Button({ label, onPress, variant = 'primary', busy, disabled, ac
       onPress={onPress}
       style={({ pressed }) => [
         {
-          minHeight: 52,
-          paddingHorizontal: spacing.xl,
+          minHeight: compact ? MIN_TARGET : 52,
+          paddingHorizontal: compact ? spacing.md : spacing.xl,
           borderRadius: radius.lg,
           alignItems: 'center',
           justifyContent: 'center',

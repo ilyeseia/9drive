@@ -1,8 +1,8 @@
 import { useEffect, useSyncExternalStore } from 'react';
 import { loadOfflineSetting, offlineSettingStore, saveOfflineSetting } from '../../core/offlineCache';
 import { useI18n } from '../../i18n/I18nProvider';
-import { spacing } from '../../theme/theme';
-import { AppText, Button, Card } from '../../ui/components';
+import { AppText, Button } from '../../ui/components';
+import { SectionCard } from '../../ui/extra';
 
 /** Opt-in switch for the offline copy. States plainly what is stored and what still needs a connection. */
 export function OfflineSection() {
@@ -14,8 +14,7 @@ export function OfflineSection() {
   }, []);
 
   return (
-    <Card style={{ gap: spacing.md }}>
-      <AppText variant="heading">{t('offlineTitle')}</AppText>
+    <SectionCard icon="download" title={t('offlineTitle')} tone="accent">
       <AppText variant="caption" muted>
         {t('offlineBody')}
       </AppText>
@@ -27,6 +26,6 @@ export function OfflineSection() {
         variant={enabled ? 'danger' : 'secondary'}
         onPress={() => void saveOfflineSetting(!enabled)}
       />
-    </Card>
+    </SectionCard>
   );
 }

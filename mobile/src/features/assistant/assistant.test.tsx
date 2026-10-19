@@ -100,7 +100,7 @@ async function open(script: Script, locale: 'en' | 'ar' | 'fr' = 'en') {
     h.wrap(
       <NavigationContainer>
         <Stack.Navigator screenOptions={{ headerShown: false }}>
-          <Stack.Screen name="Chat">{() => <AssistantScreen pollMs={15} />}</Stack.Screen>
+          <Stack.Screen name="Chat">{() => <AssistantScreen pollMs={100} />}</Stack.Screen>
         </Stack.Navigator>
       </NavigationContainer>,
     ),

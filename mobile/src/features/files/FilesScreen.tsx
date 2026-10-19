@@ -1,18 +1,19 @@
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, FlatList, Pressable, RefreshControl, ScrollView, TextInput, View } from 'react-native';
+import { Alert, FlatList, I18nManager, Pressable, RefreshControl, ScrollView, TextInput, View } from 'react-native';
 import { bytesToNumber } from '../../api/schemas';
 import type { FileItem, FileKind, FileSort, FolderItem } from '../../api/endpoints/files';
 import { useServices, useTransfers } from '../../app/services';
 import { isolate, formatBytes, formatDate } from '../../i18n/format';
 import { useI18n } from '../../i18n/I18nProvider';
 import type { MessageKey } from '../../i18n/messages';
-import { MIN_TARGET, radius, spacing, useTheme } from '../../theme/theme';
+import { MIN_TARGET, elevation, radius, spacing, useTheme } from '../../theme/theme';
 import { pickDocuments, pickPhotos, takePhoto, type PickResult } from '../../transfers/device';
 import { fileFamily } from '../../transfers/names';
 import { AppText, Button, Card, Screen, StateView } from '../../ui/components';
-import { ActionSheet, Chip, PromptModal } from '../../ui/extra';
+import { ActionSheet, Chip, IconTile, PromptModal, ScreenHeader, type Tone } from '../../ui/extra';
+import { Icon, type IconName } from '../../ui/Icon';
 import { FreshnessNote } from '../../ui/Offline';
 import type { FilesStackParamList } from '../../navigation/FilesStack';
 import { FolderPicker } from './FolderPicker';
@@ -128,49 +129,63 @@ export function FilesScreen() {
 
   const header = (
     <View style={{ gap: spacing.md, paddingBottom: spacing.sm }}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-        <AppText variant="title" accessibilityRole="header">
-          {t('filesTitle')}
-        </AppText>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={`${t('transfers')}${activeTransfers > 0 ? `, ${activeTransfers}` : ''}`}
-          onPress={() => navigation.navigate('Transfers')}
-          style={{ minHeight: MIN_TARGET, minWidth: MIN_TARGET, alignItems: 'center', justifyContent: 'center' }}
-        >
-          <AppText style={{ color: colors.primary, fontWeight: '700' }}>
-            {t('transfers')}
-            {activeTransfers > 0 ? ` (${activeTransfers})` : ''}
-          </AppText>
-        </Pressable>
-      </View>
+      <ScreenHeader
+        title={t('filesTitle')}
+        right={
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`${t('transfers')}${activeTransfers > 0 ? `, ${activeTransfers}` : ''}`}
+            onPress={() => navigation.navigate('Transfers')}
+            style={{
+              minHeight: MIN_TARGET,
+              paddingHorizontal: spacing.md,
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: spacing.xs,
+              borderRadius: radius.pill,
+              backgroundColor: activeTransfers > 0 ? colors.primary : colors.surfaceAlt,
+            }}
+          >
+            <Icon name="upload" size={18} color={activeTransfers > 0 ? colors.onPrimary : colors.primary} />
+            <AppText variant="label" style={{ color: activeTransfers > 0 ? colors.onPrimary : colors.primary }}>
+              {t('transfers')}
+              {activeTransfers > 0 ? ` (${activeTransfers})` : ''}
+            </AppText>
+          </Pressable>
+        }
+      />
 
       <View style={{ flexDirection: 'row', gap: spacing.sm }}>
         <Chip label={t('sharedLinks')} onPress={() => navigation.navigate('SharedLinks')} />
       </View>
 
-      <TextInput
-        accessibilityLabel={t('searchFiles')}
-        placeholder={t('searchFiles')}
-        placeholderTextColor={colors.textMuted}
-        value={search}
-        onChangeText={setSearch}
-        autoCapitalize="none"
-        autoCorrect={false}
-        returnKeyType="search"
-        clearButtonMode="while-editing"
-        maxFontSizeMultiplier={1.6}
+      <View
         style={{
-          minHeight: MIN_TARGET,
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: spacing.sm,
+          paddingHorizontal: spacing.md,
           borderWidth: 1,
           borderColor: colors.border,
-          borderRadius: radius.md,
-          paddingHorizontal: spacing.md,
-          color: colors.text,
+          borderRadius: radius.pill,
           backgroundColor: colors.surface,
-          fontSize: 16,
         }}
-      />
+      >
+        <Icon name="search" size={18} color={colors.textMuted} />
+        <TextInput
+          accessibilityLabel={t('searchFiles')}
+          placeholder={t('searchFiles')}
+          placeholderTextColor={colors.textMuted}
+          value={search}
+          onChangeText={setSearch}
+          autoCapitalize="none"
+          autoCorrect={false}
+          returnKeyType="search"
+          clearButtonMode="while-editing"
+          maxFontSizeMultiplier={1.6}
+          style={{ flex: 1, minHeight: MIN_TARGET, color: colors.text, fontSize: 16 }}
+        />
+      </View>
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.sm }}>
         {SORTS.map((s) => (
@@ -238,15 +253,24 @@ export function FilesScreen() {
     <Screen padded={false}>
       {selecting ? (
         <View
-          style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.md, backgroundColor: colors.surfaceAlt }}
+          style={{
+            flexDirection: 'row',
+            flexWrap: 'wrap',
+            alignItems: 'center',
+            gap: spacing.sm,
+            padding: spacing.md,
+            backgroundColor: colors.surfaceAlt,
+            borderBottomWidth: 1,
+            borderBottomColor: colors.border,
+          }}
           accessibilityLiveRegion="polite"
         >
-          <AppText variant="label" style={{ flex: 1 }}>
+          <AppText variant="label" style={{ flexBasis: '100%' }}>
             {t('selectedCount', { count: selected.size })}
           </AppText>
-          <Button label={t('moveTo')} variant="secondary" onPress={() => setMoveOpen(true)} />
-          <Button label={t('moveToTrash')} variant="danger" onPress={confirmTrash} busy={actions.trash.isPending} />
-          <Button label={t('done')} variant="secondary" onPress={() => setSelected(new Set())} />
+          <Button compact label={t('moveTo')} variant="secondary" icon="folder" onPress={() => setMoveOpen(true)} />
+          <Button compact label={t('moveToTrash')} variant="danger" icon="trash" onPress={confirmTrash} busy={actions.trash.isPending} />
+          <Button compact label={t('done')} variant="secondary" onPress={() => setSelected(new Set())} />
         </View>
       ) : null}
 
@@ -296,30 +320,24 @@ export function FilesScreen() {
                 setSelected(new Set());
               }}
               style={{
-                minHeight: 56,
+                minHeight: 64,
                 flexDirection: 'row',
                 alignItems: 'center',
                 gap: spacing.md,
                 paddingHorizontal: spacing.md,
-                borderRadius: radius.md,
+                borderRadius: radius.lg,
                 backgroundColor: colors.surface,
+                borderWidth: 1,
+                borderColor: colors.border,
               }}
             >
-              <View
-                style={{
-                  width: 36,
-                  height: 36,
-                  borderRadius: radius.sm,
-                  backgroundColor: colors.surfaceAlt,
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                <AppText variant="caption">▸</AppText>
-              </View>
-              <AppText style={{ flex: 1, fontWeight: '600' }} numberOfLines={1}>
+              <IconTile icon="folder" tone="primary" size={42} />
+              <AppText style={{ flex: 1, fontWeight: '700' }} numberOfLines={1}>
                 {isolate(item.folder.name)}
               </AppText>
+              <View style={{ transform: [{ scaleX: I18nManager.isRTL ? -1 : 1 }] }}>
+                <Icon name="chevron" size={20} color={colors.textMuted} />
+              </View>
             </Pressable>
           ) : (
             <FileRow
@@ -335,7 +353,13 @@ export function FilesScreen() {
       />
 
       <View style={{ position: 'absolute', bottom: spacing.xl, end: spacing.xl }}>
-        <Button label={t('add')} onPress={() => setAddOpen(true)} accessibilityHint={t('uploadFiles')} />
+        <Button
+          label={t('add')}
+          icon="plus"
+          onPress={() => setAddOpen(true)}
+          accessibilityHint={t('uploadFiles')}
+          style={[{ borderRadius: radius.pill }, elevation(3)]}
+        />
       </View>
 
       <ActionSheet
@@ -375,6 +399,24 @@ export function FilesScreen() {
   );
 }
 
+const FAMILY_ICON: Partial<Record<ReturnType<typeof fileFamily>, IconName>> = {
+  image: 'image',
+  video: 'video',
+  archive: 'archive',
+  pdf: 'file',
+  text: 'file',
+  office: 'file',
+  audio: 'file',
+  other: 'file',
+};
+const FAMILY_TONE: Partial<Record<ReturnType<typeof fileFamily>, Tone>> = {
+  image: 'accent',
+  video: 'primary',
+  pdf: 'danger',
+  archive: 'warning',
+  office: 'success',
+};
+
 function FileRow({
   file,
   selected,
@@ -402,33 +444,37 @@ function FileRow({
       onLongPress={onLongPress}
       delayLongPress={350}
       style={{
-        minHeight: 64,
+        minHeight: 68,
         flexDirection: 'row',
         alignItems: 'center',
         gap: spacing.md,
         paddingHorizontal: spacing.md,
-        borderRadius: radius.md,
+        borderRadius: radius.lg,
         backgroundColor: selected ? colors.surfaceAlt : colors.surface,
-        borderWidth: selected ? 2 : 0,
-        borderColor: colors.primary,
+        borderWidth: selected ? 2 : 1,
+        borderColor: selected ? colors.primary : colors.border,
       }}
     >
-      <View
-        style={{
-          width: 40,
-          height: 40,
-          borderRadius: radius.sm,
-          backgroundColor: colors.surfaceAlt,
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
-      >
-        <AppText variant="caption" style={{ fontWeight: '800' }}>
-          {selecting ? (selected ? '✓' : '○') : family.slice(0, 3).toUpperCase()}
-        </AppText>
-      </View>
+      {selecting ? (
+        <View
+          style={{
+            width: 42,
+            height: 42,
+            borderRadius: 21,
+            alignItems: 'center',
+            justifyContent: 'center',
+            backgroundColor: selected ? colors.primary : colors.surfaceAlt,
+            borderWidth: selected ? 0 : 1,
+            borderColor: colors.border,
+          }}
+        >
+          {selected ? <Icon name="check" size={20} color={colors.onPrimary} strokeWidth={2.8} /> : null}
+        </View>
+      ) : (
+        <IconTile icon={FAMILY_ICON[family] ?? 'file'} tone={FAMILY_TONE[family] ?? 'neutral'} size={42} />
+      )}
       <View style={{ flex: 1 }}>
-        <AppText style={{ fontWeight: '600' }} numberOfLines={1}>
+        <AppText style={{ fontWeight: '700' }} numberOfLines={1}>
           {isolate(file.name)}
         </AppText>
         <AppText variant="caption" muted numberOfLines={1}>
