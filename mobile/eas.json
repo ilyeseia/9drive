@@ -9,7 +9,8 @@
     },
     "preview": {
       "distribution": "internal",
-      "android": { "buildType": "apk" }
+      "android": { "buildType": "apk" },
+      "env": { "EXPO_PUBLIC_API_URL": "https://9drive.tail7d68dd.ts.net" }
     },
     "production": {
       "autoIncrement": true,
