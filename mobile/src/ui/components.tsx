@@ -284,11 +284,14 @@ export function StateView({
   title,
   message,
   onRetry,
+  action,
 }: {
   kind: 'loading' | 'empty' | 'error';
   title?: string;
   message?: string;
   onRetry?: () => void;
+  /** Primary call to action (for example "Add storage" on an empty list). */
+  action?: { label: string; onPress: () => void };
 }) {
   const { colors } = useTheme();
   const { t } = useI18n();
@@ -322,6 +325,7 @@ export function StateView({
           {message}
         </AppText>
       ) : null}
+      {action ? <Button label={action.label} icon="plus" onPress={action.onPress} /> : null}
       {onRetry ? <Button label={t('retry')} variant="secondary" onPress={onRetry} /> : null}
     </View>
   );

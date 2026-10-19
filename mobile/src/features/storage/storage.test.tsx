@@ -1,6 +1,6 @@
 import { NavigationContainer } from '@react-navigation/native';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
-import { Alert } from 'react-native';
+import { Alert, Linking } from 'react-native';
 import { StorageStack } from '../../navigation/StorageStack';
 import { json, makeHarness, type Handler } from '../../test/helpers';
 
@@ -46,9 +46,16 @@ function server(opts: { accounts?: ReturnType<typeof account>[]; policy?: Return
     if (path === '/providers' && method === 'GET') return json(opts.accounts ?? []);
     if (path === '/providers/catalog')
       return json([
-        { id: 'google_drive', displayName: 'Google Drive', status: 'SUPPORTED' },
-        { id: 's3', displayName: 'S3-compatible', status: 'SUPPORTED' },
+        { id: 'google_drive', displayName: 'Google Drive', status: 'SUPPORTED', authMode: 'oauth2', connectMode: null, experimental: null },
+        { id: 'dropbox', displayName: 'Dropbox', status: 'SUPPORTED', authMode: 'oauth2', connectMode: null },
+        { id: 'terabox_open', displayName: 'TeraBox', status: 'SUPPORTED', authMode: 'oauth2', connectMode: 'device_code' },
+        { id: 'box', displayName: 'Box', status: 'PLANNED', authMode: 'oauth2' },
+        { id: 's3', displayName: 'S3-compatible', status: 'SUPPORTED', authMode: 'access_key' },
       ]);
+    if (path === '/providers/google_drive/connect-url' && method === 'POST')
+      return json({ url: 'https://accounts.example.com/auth?state=abc', state: 'abc' });
+    if (path === '/providers/dropbox/connect-url' && method === 'POST')
+      return json({ code: 'PROVIDER_NOT_AVAILABLE', message: 'No OAuth client is configured for this provider yet.' }, 409);
     if (path === '/routing/policies' && method === 'GET') return json({ policy: current });
     if (path === '/routing/policies' && method === 'PATCH') {
       if (opts.patchStatus) return json({ code: 'FORBIDDEN', message: 'no' }, opts.patchStatus);
@@ -74,7 +81,7 @@ function server(opts: { accounts?: ReturnType<typeof account>[]; policy?: Return
   };
 }
 
-async function open(handler: Handler, initial?: 'Routing' | 'AddAccount') {
+async function open(handler: Handler, initial?: 'Routing' | 'AddAccount' | 'S3') {
   const h = makeHarness(handler, { signedIn: true });
   await h.services.session.restore();
   await render(
@@ -84,8 +91,11 @@ async function open(handler: Handler, initial?: 'Routing' | 'AddAccount') {
       </NavigationContainer>,
     ),
   );
-  if (initial)
-    await fireEvent.press(await screen.findByRole('button', { name: initial === 'Routing' ? 'Upload routing' : 'Add storage account' }));
+  if (initial === 'Routing') await fireEvent.press(await screen.findByRole('button', { name: 'Upload routing' }));
+  if (initial === 'AddAccount' || initial === 'S3') {
+    await fireEvent.press((await screen.findAllByRole('button', { name: 'Add storage account' }))[0]!);
+    if (initial === 'S3') await fireEvent.press(await screen.findByRole('button', { name: 'Connect S3-compatible storage' }));
+  }
   return h;
 }
 
@@ -196,21 +206,57 @@ describe('RoutingScreen', () => {
   });
 });
 
-describe('AddAccountScreen', () => {
-  it('explains which providers need the web app, honestly', async () => {
+describe('ConnectProviderScreen', () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  it('offers sign-in providers the app can complete and S3, but not device-code or planned ones', async () => {
     await open(server(), 'AddAccount');
-    expect(await screen.findByText(/only the web app can complete today/)).toBeTruthy();
+    expect(await screen.findByRole('button', { name: 'Connect Google Drive' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Connect Dropbox' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Connect S3-compatible storage' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Connect TeraBox' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Connect Box' })).toBeNull();
+    expect(screen.getByText(/TeraBox and other providers are connected from the web app/)).toBeTruthy();
   });
 
-  it('validates required fields before sending anything', async () => {
+  it('asks the server for the sign-in URL and opens it in the browser', async () => {
+    const open_ = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined);
     const h = await open(server(), 'AddAccount');
+    await fireEvent.press(await screen.findByRole('button', { name: 'Connect Google Drive' }));
+    await waitFor(() => expect(open_).toHaveBeenCalledWith('https://accounts.example.com/auth?state=abc'));
+    expect(open_).toHaveBeenCalledTimes(1); // one tap opens the browser exactly once
+    expect(h.calls.some((c) => c.method === 'POST' && c.path === '/providers/google_drive/connect-url')).toBe(true);
+    expect(await screen.findByText(/Finish signing in to Google Drive in the browser/)).toBeTruthy();
+  });
+
+  it('explains plainly when the server has no sign-in set up for a provider', async () => {
+    const open_ = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined);
+    await open(server(), 'AddAccount');
+    await screen.findByRole('button', { name: 'Connect Dropbox' });
+    open_.mockClear();
+    await fireEvent.press(screen.getByRole('button', { name: 'Connect Dropbox' }));
+    expect(await screen.findByText(/no sign-in set up for Dropbox yet/)).toBeTruthy();
+    expect(open_.mock.calls).toEqual([]);
+    expect(screen.getByText(/HTTP 409 · PROVIDER_NOT_AVAILABLE/)).toBeTruthy();
+  });
+
+  it('the empty storage list points straight at adding storage', async () => {
+    await open(server({ accounts: [] }));
+    expect(await screen.findByText('Add a storage account to start uploading files.')).toBeTruthy();
+    expect(screen.getAllByRole('button', { name: 'Add storage account' }).length).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe('AddAccountScreen', () => {
+  it('validates required fields before sending anything', async () => {
+    const h = await open(server(), 'S3');
     await fireEvent.press(await screen.findByRole('button', { name: 'Connect' }));
     expect((await screen.findAllByText('This field is required.')).length).toBeGreaterThanOrEqual(4);
     expect(h.calls.some((c) => c.path === '/connected-accounts/s3')).toBe(false);
   });
 
   it('warns about a plain-http endpoint, masks the secret, and sends the connection to the server', async () => {
-    const h = await open(server(), 'AddAccount');
+    const h = await open(server(), 'S3');
     await fireEvent.changeText(await screen.findByLabelText('Display name'), 'Backups');
     await fireEvent.changeText(screen.getByLabelText('Bucket'), 'my-bucket');
     await fireEvent.changeText(screen.getByLabelText('Region'), 'us-east-1');

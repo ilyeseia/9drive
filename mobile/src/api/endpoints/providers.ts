@@ -41,8 +41,10 @@ export const catalogEntrySchema = z.object({
   id: z.string(),
   displayName: z.string(),
   status: z.string(),
-  connectMode: z.string().optional(),
-  notes: z.string().optional(),
+  authMode: z.string().nullish(),
+  connectMode: z.string().nullish(),
+  experimental: z.boolean().nullish(),
+  notes: z.string().nullish(),
 });
 export type CatalogEntry = z.infer<typeof catalogEntrySchema>;
 
@@ -106,6 +108,20 @@ export const providersApi = {
   /** Public endpoint; used for display names and to explain which providers cannot be connected from the app. */
   catalog: (client: ApiClient, signal?: AbortSignal) =>
     client.request({ path: '/providers/catalog', auth: false, schema: z.array(catalogEntrySchema), signal }),
+
+  /**
+   * Asks the server for the provider's sign-in page URL. The server holds the OAuth client secret and completes the
+   * sign-in on its own callback, so no provider token ever reaches the device.
+   */
+  connectUrl: (client: ApiClient, provider: string) =>
+    client
+      .request({
+        method: 'POST',
+        path: `/providers/${encodeURIComponent(provider)}/connect-url`,
+        body: {},
+        schema: z.object({ url: z.string().url() }),
+      })
+      .then((r) => r.url),
 
   checkHealth: (client: ApiClient, accountId: string) =>
     client.request({ method: 'POST', path: `/providers/accounts/${encodeURIComponent(accountId)}/health`, body: {}, schema: healthSchema }),

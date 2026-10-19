@@ -1,6 +1,7 @@
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { Alert, FlatList, RefreshControl, Switch, View } from 'react-native';
+import { useEffect } from 'react';
+import { Alert, AppState, FlatList, RefreshControl, Switch, View } from 'react-native';
 import type { AccountView } from '../../api/endpoints/providers';
 import { describeErrorDetail } from '../../core/errorDetail';
 import { useI18n } from '../../i18n/I18nProvider';
@@ -21,6 +22,14 @@ export function StorageScreen() {
   const accounts = useAccounts();
   const catalog = useCatalog();
   const list = accounts.data ?? [];
+  const { refetch } = accounts;
+  // A sign-in finished in the browser (or a change made on the web) shows up as soon as the user returns.
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') void refetch();
+    });
+    return () => subscription.remove();
+  }, [refetch]);
   const summary = summarize(list);
 
   return (
@@ -74,7 +83,12 @@ export function StorageScreen() {
               onRetry={() => void accounts.refetch()}
             />
           ) : (
-            <StateView kind="empty" title={t('storageEmpty')} />
+            <StateView
+              kind="empty"
+              title={t('storageEmpty')}
+              message={t('storageEmptyHelp')}
+              action={{ label: t('addAccount'), onPress: () => navigation.navigate('AddAccount') }}
+            />
           )
         }
         renderItem={({ item }) => <AccountCard account={item} label={providerLabel(item.provider, catalog.data)} />}

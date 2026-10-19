@@ -1,4 +1,4 @@
-import { useNavigation } from '@react-navigation/native';
+import { StackActions, useNavigation } from '@react-navigation/native';
 import { useState } from 'react';
 import { KeyboardAvoidingView, Platform, ScrollView, Switch, View } from 'react-native';
 import { ApiError } from '../../api/errors';
@@ -39,7 +39,7 @@ export function AddAccountScreen() {
       {
         onSuccess: () => {
           setForm(EMPTY); // drop the secret from memory
-          navigation.goBack();
+          navigation.dispatch(StackActions.popToTop());
         },
         onError: (error) =>
           setServerError(ApiError.is(error) && error.code === 'SSRF_BLOCKED' ? t('errEndpointInvalid') : describeError(error)),

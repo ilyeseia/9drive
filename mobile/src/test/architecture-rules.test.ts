@@ -44,8 +44,12 @@ describe('security architecture rules', () => {
     expect(offenders(/\beval\(|new Function\(|dangerouslySetInnerHTML|react-native-webview|<WebView/)).toEqual([]);
   });
 
-  it('the app never opens URLs on its own: Linking.openURL / Linking.canOpenURL are not used', () => {
-    expect(offenders(/Linking\.(openURL|canOpenURL|openSettings)\(/)).toEqual([]);
+  it('the app never opens URLs on its own: Linking.openURL / canOpenURL exist only in the validating helper', () => {
+    expect(offenders(/Linking\.(openURL|canOpenURL|openSettings)\(/, ['core/externalLink.ts'])).toEqual([]);
+  });
+
+  it('the external-link helper (provider sign-in) is used only by the connect-provider screen', () => {
+    expect(offenders(/openProviderSignIn/, ['core/externalLink.ts', 'features/storage/ConnectProviderScreen.tsx'])).toEqual([]);
   });
 
   it('no deep-link handling is configured (the registered scheme opens the app but routes nowhere)', () => {

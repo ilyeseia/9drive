@@ -33,6 +33,7 @@ export function useStorageActions() {
       mutationFn: (id: string) => providersApi.disconnect(client, id),
       onSettled: () => Promise.all([refresh(), queryClient.invalidateQueries({ queryKey: ['files'] })]),
     }),
+    connectUrl: useMutation({ mutationFn: (provider: string) => providersApi.connectUrl(client, provider).then((url) => ({ url })) }),
     connectS3: useMutation({ mutationFn: (input: S3ConnectInput) => providersApi.connectS3(client, input), onSuccess: refresh }),
     updatePolicy: useMutation({
       mutationFn: (patch: { mode?: RoutingMode; priorityAccountIds?: string[] }) => providersApi.updateRoutingPolicy(client, patch),
