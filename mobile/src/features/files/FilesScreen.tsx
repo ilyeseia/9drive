@@ -6,6 +6,7 @@ import { bytesToNumber } from '../../api/schemas';
 import type { FileItem, FileKind, FileSort, FolderItem } from '../../api/endpoints/files';
 import { useServices, useTransfers } from '../../app/services';
 import { isolate, formatBytes, formatDate } from '../../i18n/format';
+import { describeErrorDetail } from '../../core/errorDetail';
 import { useI18n } from '../../i18n/I18nProvider';
 import type { MessageKey } from '../../i18n/messages';
 import { MIN_TARGET, elevation, radius, spacing, useTheme } from '../../theme/theme';
@@ -294,7 +295,7 @@ export function FilesScreen() {
           files.isPending ? (
             <StateView kind="loading" title={t('loading')} />
           ) : files.isError ? (
-            <StateView kind="error" title={describeError(files.error)} onRetry={refresh} />
+            <StateView kind="error" title={describeError(files.error)} message={describeErrorDetail(files.error)} onRetry={refresh} />
           ) : (
             <StateView kind="empty" title={t(q.trim() || kind ? 'emptySearch' : 'emptyFiles')} />
           )

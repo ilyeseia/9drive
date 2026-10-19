@@ -2,6 +2,7 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Alert, FlatList, RefreshControl, Switch, View } from 'react-native';
 import type { AccountView } from '../../api/endpoints/providers';
+import { describeErrorDetail } from '../../core/errorDetail';
 import { useI18n } from '../../i18n/I18nProvider';
 import { formatBytes, formatDate, isolate } from '../../i18n/format';
 import type { StorageStackParamList } from '../../navigation/StorageStack';
@@ -66,7 +67,12 @@ export function StorageScreen() {
           accounts.isPending ? (
             <StateView kind="loading" title={t('loading')} />
           ) : accounts.isError ? (
-            <StateView kind="error" title={describeError(accounts.error)} onRetry={() => void accounts.refetch()} />
+            <StateView
+              kind="error"
+              title={describeError(accounts.error)}
+              message={describeErrorDetail(accounts.error)}
+              onRetry={() => void accounts.refetch()}
+            />
           ) : (
             <StateView kind="empty" title={t('storageEmpty')} />
           )

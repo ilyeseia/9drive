@@ -10,6 +10,16 @@ import { bytesString, isoDate } from '../schemas';
 
 const nullableBytes = bytesString.nullable();
 
+/**
+ * Free space can legitimately be negative on the server (used > configured total, e.g. an S3 bucket over its quota).
+ * One such account must not make the whole list unreadable, so a negative value is shown as 0 bytes available.
+ */
+const availableBytes = z
+  .string()
+  .regex(/^-?\d{1,19}$/, 'expected a decimal byte count')
+  .transform((value) => (value.startsWith('-') ? '0' : value))
+  .nullable();
+
 export const accountViewSchema = z.object({
   id: z.string().min(1),
   provider: z.string(),
@@ -18,7 +28,7 @@ export const accountViewSchema = z.object({
   status: z.string(),
   lastError: z.string().nullable().optional(),
   capabilities: z.array(z.string()).default([]),
-  quota: z.object({ totalBytes: nullableBytes, usedBytes: bytesString, availableBytes: nullableBytes }).nullable(),
+  quota: z.object({ totalBytes: nullableBytes, usedBytes: bytesString, availableBytes }).nullable(),
   health: z.object({ state: z.string(), latencyMs: z.number().nullable(), checkedAt: isoDate }).nullable(),
   lastSyncedAt: isoDate.nullable(),
   routingEnabled: z.boolean().nullable(),

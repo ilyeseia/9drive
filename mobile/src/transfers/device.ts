@@ -5,7 +5,7 @@
  */
 
 import * as DocumentPicker from 'expo-document-picker';
-import { Directory, File, Paths } from 'expo-file-system';
+import { Directory, File, FileMode, Paths } from 'expo-file-system';
 import * as ImagePicker from 'expo-image-picker';
 import * as Sharing from 'expo-sharing';
 import { fetch as expoFetch } from 'expo/fetch';
@@ -34,7 +34,19 @@ export class DeviceFileSource implements UploadSource {
   async read(start: number, end: number): Promise<BodyInit> {
     const file = new File(this.meta.uri);
     if (!file.exists) throw new ApiError('not_found', null, 'LOCAL_FILE_MISSING', 'The file is no longer available on this device.');
-    return file.slice(start, end, this.mimeType) as unknown as BodyInit;
+    // Read exactly [start, end) as bytes through a file handle. One chunk is in memory at a time (the platform
+    // fetch copies a Blob body into memory anyway), and a plain byte array is the most widely supported body type.
+    const handle = file.open(FileMode.ReadOnly);
+    try {
+      handle.offset = start;
+      const bytes = await handle.readBytes(end - start);
+      if (bytes.byteLength !== end - start) {
+        throw new ApiError('not_found', null, 'LOCAL_FILE_CHANGED', 'The file changed while it was being uploaded.');
+      }
+      return bytes as unknown as BodyInit;
+    } finally {
+      handle.close();
+    }
   }
 }
 

@@ -15,6 +15,8 @@
 
 import { ApiError, type ApiErrorKind } from '../api/errors';
 import type { FileItem } from '../api/endpoints/files';
+import { describeErrorDetail } from '../core/errorDetail';
+import { log } from '../core/logger';
 import { UploadRunner, type UploadJob, type UploadSource } from './upload';
 
 export type TransferKind = 'upload' | 'download';
@@ -29,6 +31,8 @@ export interface TransferItem {
   status: TransferStatus;
   errorKind: ApiErrorKind | null;
   errorCode: string | null;
+  /** Short technical description of the last failure (see core/errorDetail). Shown to help support; never secret. */
+  errorDetail: string | null;
   /** Upload: the created file. Download: nothing. */
   file: FileItem | null;
   /** Download: the local copy once finished. */
@@ -135,7 +139,7 @@ export class TransferManager {
     const entry = this.entries.get(id);
     if (!entry || !['queued', 'active', 'paused'].includes(entry.item.status)) return;
     entry.controller?.abort();
-    this.update(id, { status: 'cancelled', errorKind: null, errorCode: null });
+    this.update(id, { status: 'cancelled', errorKind: null, errorCode: null, errorDetail: null });
     this.afterChange();
   }
 
@@ -143,7 +147,7 @@ export class TransferManager {
   retry(id: string): void {
     const entry = this.entries.get(id);
     if (!entry || !['failed', 'cancelled', 'paused'].includes(entry.item.status)) return;
-    this.update(id, { status: 'queued', errorKind: null, errorCode: null });
+    this.update(id, { status: 'queued', errorKind: null, errorCode: null, errorDetail: null });
     this.afterChange();
   }
 
@@ -208,6 +212,7 @@ export class TransferManager {
         status: spec.status,
         errorKind: null,
         errorCode: null,
+        errorDetail: null,
         file: null,
         localUri: null,
       },
@@ -268,7 +273,9 @@ export class TransferManager {
           status: 'failed',
           errorKind: ApiError.is(error) ? error.kind : 'unknown',
           errorCode: ApiError.is(error) ? error.code : null,
+          errorDetail: describeErrorDetail(error),
         });
+        log.warn('Transfer failed', { kind: ApiError.is(error) ? error.kind : 'unknown', detail: describeErrorDetail(error) });
       }
     } finally {
       entry.controller = null;

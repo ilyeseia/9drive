@@ -97,6 +97,11 @@ function TransferRow({
           {errorText}
         </AppText>
       ) : null}
+      {item.status === 'failed' && item.errorDetail ? (
+        <AppText variant="caption" muted selectable>
+          {item.errorDetail}
+        </AppText>
+      ) : null}
       <View style={{ flexDirection: 'row', gap: spacing.sm }}>
         {running ? <Button label={t('cancel')} variant="secondary" onPress={onCancel} style={{ flex: 1 }} /> : null}
         {item.status === 'failed' || item.status === 'paused' || item.status === 'cancelled' ? (
