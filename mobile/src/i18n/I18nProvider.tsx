@@ -35,6 +35,7 @@ const ERROR_KEYS: Record<ApiError['kind'], MessageKey> = {
   server: 'errServer',
   unavailable: 'errUnavailable',
   invalid_response: 'errInvalidResponse',
+  not_api: 'errNotApi',
   unknown: 'errUnknown',
 };
 

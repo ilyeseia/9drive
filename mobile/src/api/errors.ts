@@ -19,6 +19,7 @@ export type ApiErrorKind =
   | 'server' // 5xx
   | 'unavailable' // 502/503/504 maintenance
   | 'invalid_response' // body did not match the contract
+  | 'not_api' // an HTML page answered: the configured address is not the API
   | 'unknown';
 
 export class ApiError extends Error {

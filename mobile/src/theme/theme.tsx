@@ -16,6 +16,8 @@ export interface Palette {
   textMuted: string;
   primary: string;
   onPrimary: string;
+  /** Secondary brand colour, used for decorative accents and highlights (never as the only carrier of meaning). */
+  accent: string;
   danger: string;
   onDanger: string;
   success: string;
@@ -24,39 +26,59 @@ export interface Palette {
 }
 
 export const lightPalette: Palette = {
-  background: '#F6F7FB',
+  background: '#F3F5FF',
   surface: '#FFFFFF',
-  surfaceAlt: '#EEF0F6',
-  border: '#D5D9E4',
-  text: '#10131C',
-  textMuted: '#4A5164',
-  primary: '#3730C9',
+  surfaceAlt: '#E8ECFB',
+  border: '#D2D9F1',
+  text: '#0D1230',
+  textMuted: '#454E6E',
+  primary: '#3B47D8',
   onPrimary: '#FFFFFF',
+  accent: '#0F8F80',
   danger: '#B3261E',
   onDanger: '#FFFFFF',
   success: '#1B6B3A',
   warning: '#8A5300',
-  focus: '#3730C9',
+  focus: '#3B47D8',
 };
 
 export const darkPalette: Palette = {
-  background: '#0B0E16',
-  surface: '#141927',
-  surfaceAlt: '#1D2333',
-  border: '#2C3348',
-  text: '#F1F3F9',
-  textMuted: '#A8B0C5',
-  primary: '#A9A5FF',
-  onPrimary: '#0B0E16',
+  background: '#090C19',
+  surface: '#121A2F',
+  surfaceAlt: '#1B2542',
+  border: '#2A3558',
+  text: '#F2F5FF',
+  textMuted: '#A9B4D3',
+  primary: '#8C97FF',
+  onPrimary: '#090C19',
+  accent: '#3DD9C5',
   danger: '#FF8A80',
   onDanger: '#1A0504',
   success: '#7FD6A0',
   warning: '#F2B35C',
-  focus: '#A9A5FF',
+  focus: '#8C97FF',
 };
 
 export const spacing = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24, xxl: 32 } as const;
-export const radius = { sm: 8, md: 12, lg: 16, pill: 999 } as const;
+export const radius = { sm: 8, md: 12, lg: 16, xl: 22, pill: 999 } as const;
+
+/** Cross-platform soft shadow (iOS shadow* props, Android elevation). Level 0 is flat. */
+export function elevation(level: 0 | 1 | 2 | 3): {
+  shadowColor: string;
+  shadowOpacity: number;
+  shadowRadius: number;
+  shadowOffset: { width: number; height: number };
+  elevation: number;
+} {
+  const table = [
+    { o: 0, r: 0, y: 0, e: 0 },
+    { o: 0.1, r: 6, y: 2, e: 2 },
+    { o: 0.16, r: 12, y: 5, e: 5 },
+    { o: 0.22, r: 20, y: 9, e: 9 },
+  ] as const;
+  const { o, r, y, e } = table[level];
+  return { shadowColor: '#000000', shadowOpacity: o, shadowRadius: r, shadowOffset: { width: 0, height: y }, elevation: e };
+}
 /** Minimum touch target (dp): 48 satisfies both Android (48) and iOS (44) guidance. */
 export const MIN_TARGET = 48;
 

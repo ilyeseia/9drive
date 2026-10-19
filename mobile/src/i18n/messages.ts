@@ -50,6 +50,7 @@ const en = {
   errServer: 'Something went wrong on the server. Try again later.',
   errUnavailable: 'The service is temporarily unavailable. Try again shortly.',
   errInvalidResponse: 'The server sent an unexpected answer. Update the app or contact support.',
+  errNotApi: 'This address is not a 9Drive server (a web page answered). Install a version built for the correct server address.',
   errUnknown: 'Something went wrong. Try again.',
 
   configMissingTitle: 'Server address not configured',
@@ -385,6 +386,7 @@ const ar: Dictionary = {
   errServer: 'حدث خطأ في الخادم. حاول لاحقًا.',
   errUnavailable: 'الخدمة غير متاحة مؤقتًا. حاول بعد قليل.',
   errInvalidResponse: 'أرسل الخادم ردًا غير متوقع. حدّث التطبيق أو تواصل مع الدعم.',
+  errNotApi: 'هذا العنوان ليس خادم 9Drive (ردّت صفحة ويب). ثبّت نسخة مبنية بعنوان الخادم الصحيح.',
   errUnknown: 'حدث خطأ ما. أعد المحاولة.',
 
   configMissingTitle: 'عنوان الخادم غير مضبوط',
@@ -715,6 +717,7 @@ const fr: Dictionary = {
   errServer: 'Une erreur est survenue côté serveur. Réessayez plus tard.',
   errUnavailable: 'Le service est temporairement indisponible. Réessayez dans un instant.',
   errInvalidResponse: 'Le serveur a envoyé une réponse inattendue. Mettez à jour l’application ou contactez le support.',
+  errNotApi: 'Cette adresse n’est pas un serveur 9Drive (une page web a répondu). Installez une version configurée avec la bonne adresse.',
   errUnknown: 'Une erreur est survenue. Réessayez.',
 
   configMissingTitle: 'Adresse du serveur non configurée',

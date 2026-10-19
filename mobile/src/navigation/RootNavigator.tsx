@@ -5,7 +5,8 @@ import { useTheme } from '../theme/theme';
 import { SettingsScreen } from '../features/settings/SettingsScreen';
 import { FilesStack } from './FilesStack';
 import { OfflineBanner } from '../ui/Offline';
-import { View } from 'react-native';
+import { Platform, View } from 'react-native';
+import { Icon, type IconName } from '../ui/Icon';
 import { StorageStack } from './StorageStack';
 import { AssistantStack } from './AssistantStack';
 
@@ -17,6 +18,13 @@ export type TabParamList = {
 };
 
 const Tab = createBottomTabNavigator<TabParamList>();
+
+const TAB_ICONS: Record<keyof TabParamList, IconName> = {
+  Files: 'folder',
+  Storage: 'cloud',
+  Assistant: 'chat',
+  Settings: 'sliders',
+};
 
 export function RootNavigator() {
   const { t } = useI18n();
@@ -39,7 +47,23 @@ export function RootNavigator() {
       <View style={{ flex: 1 }}>
         <OfflineBanner />
         <Tab.Navigator
-          screenOptions={{ headerShown: false, tabBarActiveTintColor: colors.primary, tabBarInactiveTintColor: colors.textMuted }}
+          screenOptions={({ route }) => ({
+            headerShown: false,
+            tabBarActiveTintColor: colors.primary,
+            tabBarInactiveTintColor: colors.textMuted,
+            tabBarHideOnKeyboard: true,
+            tabBarLabelStyle: { fontSize: 12, fontWeight: '700', marginBottom: Platform.OS === 'android' ? 6 : 0 },
+            tabBarStyle: {
+              backgroundColor: colors.surface,
+              borderTopColor: colors.border,
+              borderTopWidth: 1,
+              height: Platform.OS === 'android' ? 68 : undefined,
+              paddingTop: 6,
+            },
+            tabBarIcon: ({ color, focused }) => (
+              <Icon name={TAB_ICONS[route.name]} size={focused ? 25 : 23} color={color} strokeWidth={focused ? 2.4 : 2} />
+            ),
+          })}
         >
           <Tab.Screen name="Files" options={{ title: t('tabFiles'), tabBarAccessibilityLabel: t('tabFiles') }} component={FilesStack} />
           <Tab.Screen

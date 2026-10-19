@@ -49,9 +49,11 @@ describe('malformed responses never reach the UI', () => {
   }
 
   it('HTML or truncated JSON from a proxy is an error, not a crash', async () => {
-    for (const body of ['<html>502</html>', '{"files":[{"id":"x"', '']) {
+    for (const body of ['{"files":[{"id":"x"', '']) {
       await expect(filesApi.list(clientReturning(body), {})).rejects.toMatchObject({ kind: 'invalid_response' });
     }
+    // A web page where JSON was expected means the configured address is not the API (clearer than "unexpected answer").
+    await expect(filesApi.list(clientReturning('<html>502</html>'), {})).rejects.toMatchObject({ kind: 'not_api' });
   });
 
   it('rejects out-of-contract values inside otherwise valid shapes', async () => {

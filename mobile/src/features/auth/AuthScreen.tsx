@@ -5,7 +5,8 @@ import { useServices } from '../../app/services';
 import { useI18n } from '../../i18n/I18nProvider';
 import type { MessageKey } from '../../i18n/messages';
 import { MIN_TARGET, spacing, useTheme } from '../../theme/theme';
-import { AppText, Button, Card, Screen, TextField } from '../../ui/components';
+import { AppText, BrandMark, Button, Card, Screen, TextField } from '../../ui/components';
+import { Icon } from '../../ui/Icon';
 import type { SessionLoss } from '../../auth/session';
 import { authErrorKey, validateEmail, validateExistingPassword, validateName, validateNewPassword } from './validation';
 
@@ -62,11 +63,8 @@ export function AuthScreen({ reason }: { reason: SessionLoss | null }) {
           contentContainerStyle={{ padding: spacing.lg, gap: spacing.lg, flexGrow: 1, justifyContent: 'center' }}
           keyboardShouldPersistTaps="handled"
         >
-          <View style={{ gap: spacing.xs }}>
-            <AppText variant="title" accessibilityRole="header">
-              {t(register ? 'registerTitle' : 'signInTitle')}
-            </AppText>
-            <AppText muted>{t(register ? 'registerSubtitle' : 'signInSubtitle')}</AppText>
+          <View style={{ alignItems: 'center', marginBottom: spacing.sm }}>
+            <BrandMark size={72} stacked />
           </View>
 
           {reason ? (
@@ -77,59 +75,86 @@ export function AuthScreen({ reason }: { reason: SessionLoss | null }) {
             </Card>
           ) : null}
 
-          <View style={{ gap: spacing.md }}>
-            {register ? (
+          <Card style={{ gap: spacing.lg, padding: spacing.xl }}>
+            <View style={{ gap: spacing.xs }}>
+              <AppText variant="title" accessibilityRole="header">
+                {t(register ? 'registerTitle' : 'signInTitle')}
+              </AppText>
+              <AppText muted>{t(register ? 'registerSubtitle' : 'signInSubtitle')}</AppText>
+            </View>
+
+            <View style={{ gap: spacing.md }}>
+              {register ? (
+                <TextField
+                  label={t('fieldName')}
+                  icon="user"
+                  value={name}
+                  onChangeText={setName}
+                  error={errors.name ? t(errors.name) : null}
+                  autoComplete="name"
+                  textContentType="name"
+                  returnKeyType="next"
+                  onSubmitEditing={() => emailRef.current?.focus()}
+                  editable={!busy}
+                />
+              ) : null}
               <TextField
-                label={t('fieldName')}
-                value={name}
-                onChangeText={setName}
-                error={errors.name ? t(errors.name) : null}
-                autoComplete="name"
-                textContentType="name"
+                inputRef={emailRef}
+                label={t('fieldEmail')}
+                icon="mail"
+                value={email}
+                onChangeText={setEmail}
+                error={errors.email ? t(errors.email) : null}
+                autoCapitalize="none"
+                autoCorrect={false}
+                autoComplete="email"
+                keyboardType="email-address"
+                textContentType="emailAddress"
                 returnKeyType="next"
-                onSubmitEditing={() => emailRef.current?.focus()}
+                onSubmitEditing={() => passwordRef.current?.focus()}
                 editable={!busy}
               />
+              <TextField
+                inputRef={passwordRef}
+                label={t('fieldPassword')}
+                icon="lock"
+                value={password}
+                onChangeText={setPassword}
+                error={errors.password ? t(errors.password) : null}
+                secure
+                autoCapitalize="none"
+                autoCorrect={false}
+                autoComplete={register ? 'new-password' : 'current-password'}
+                textContentType={register ? 'newPassword' : 'password'}
+                returnKeyType="go"
+                onSubmitEditing={() => void submit()}
+                editable={!busy}
+              />
+            </View>
+
+            {formError ? (
+              <View
+                accessibilityRole="alert"
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'flex-start',
+                  gap: spacing.sm,
+                  padding: spacing.md,
+                  borderRadius: 12,
+                  backgroundColor: `${colors.danger}1F`,
+                  borderWidth: 1,
+                  borderColor: `${colors.danger}66`,
+                }}
+              >
+                <Icon name="alert" size={18} color={colors.danger} />
+                <AppText variant="caption" style={{ color: colors.danger, flex: 1 }}>
+                  {formError}
+                </AppText>
+              </View>
             ) : null}
-            <TextField
-              inputRef={emailRef}
-              label={t('fieldEmail')}
-              value={email}
-              onChangeText={setEmail}
-              error={errors.email ? t(errors.email) : null}
-              autoCapitalize="none"
-              autoCorrect={false}
-              autoComplete="email"
-              keyboardType="email-address"
-              textContentType="emailAddress"
-              returnKeyType="next"
-              onSubmitEditing={() => passwordRef.current?.focus()}
-              editable={!busy}
-            />
-            <TextField
-              inputRef={passwordRef}
-              label={t('fieldPassword')}
-              value={password}
-              onChangeText={setPassword}
-              error={errors.password ? t(errors.password) : null}
-              secure
-              autoCapitalize="none"
-              autoCorrect={false}
-              autoComplete={register ? 'new-password' : 'current-password'}
-              textContentType={register ? 'newPassword' : 'password'}
-              returnKeyType="go"
-              onSubmitEditing={() => void submit()}
-              editable={!busy}
-            />
-          </View>
 
-          {formError ? (
-            <AppText accessibilityRole="alert" style={{ color: colors.danger }}>
-              {formError}
-            </AppText>
-          ) : null}
-
-          <Button label={t(register ? 'register' : 'signIn')} onPress={() => void submit()} busy={busy} />
+            <Button label={t(register ? 'register' : 'signIn')} onPress={() => void submit()} busy={busy} />
+          </Card>
 
           <Pressable
             accessibilityRole="button"

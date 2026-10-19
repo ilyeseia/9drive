@@ -31,10 +31,12 @@ export function Chip({ label, selected, onPress }: { label: string; selected?: b
       onPress={onPress}
       style={{
         minHeight: 40,
-        paddingHorizontal: spacing.md,
+        paddingHorizontal: spacing.lg,
         borderRadius: radius.pill,
         justifyContent: 'center',
         backgroundColor: selected ? colors.primary : colors.surfaceAlt,
+        borderWidth: 1,
+        borderColor: selected ? colors.primary : colors.border,
       }}
     >
       <AppText variant="label" style={{ color: selected ? colors.onPrimary : colors.text }}>
@@ -69,8 +71,8 @@ export function Sheet({
       <View
         style={{
           backgroundColor: colors.surface,
-          borderTopLeftRadius: radius.lg,
-          borderTopRightRadius: radius.lg,
+          borderTopLeftRadius: radius.xl,
+          borderTopRightRadius: radius.xl,
           padding: spacing.lg,
           maxHeight: '80%',
         }}

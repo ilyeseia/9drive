@@ -16,8 +16,9 @@ import {
   type ViewStyle,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { MIN_TARGET, radius, spacing, useTheme } from '../theme/theme';
+import { MIN_TARGET, elevation, radius, spacing, useTheme } from '../theme/theme';
 import { useI18n } from '../i18n/I18nProvider';
+import { Icon, type IconName } from './Icon';
 
 type Variant = 'title' | 'heading' | 'body' | 'caption' | 'label';
 
@@ -40,15 +41,100 @@ export function AppText({
   return <Text maxFontSizeMultiplier={1.6} {...props} style={[TEXT[variant], { color: muted ? colors.textMuted : colors.text }, style]} />;
 }
 
-export function Screen({ children, style, padded = true }: { children: ReactNode; style?: StyleProp<ViewStyle>; padded?: boolean }) {
+/** Soft decorative glow behind a screen. Purely visual: hidden from assistive tech and never intercepts touches. */
+export function Backdrop() {
+  const { colors } = useTheme();
+  return (
+    <View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={StyleSheet.absoluteFill}>
+      <View
+        style={{
+          position: 'absolute',
+          top: -120,
+          right: -100,
+          width: 320,
+          height: 320,
+          borderRadius: 160,
+          backgroundColor: `${colors.primary}26`,
+        }}
+      />
+      <View
+        style={{
+          position: 'absolute',
+          top: 90,
+          left: -140,
+          width: 240,
+          height: 240,
+          borderRadius: 120,
+          backgroundColor: `${colors.accent}1A`,
+        }}
+      />
+      <View
+        style={{
+          position: 'absolute',
+          bottom: -140,
+          right: -60,
+          width: 300,
+          height: 300,
+          borderRadius: 150,
+          backgroundColor: `${colors.primary}1A`,
+        }}
+      />
+    </View>
+  );
+}
+
+export function Screen({
+  children,
+  style,
+  padded = true,
+  decorated = true,
+}: {
+  children: ReactNode;
+  style?: StyleProp<ViewStyle>;
+  padded?: boolean;
+  decorated?: boolean;
+}) {
   const { colors } = useTheme();
   return (
     <SafeAreaView
-      style={[{ flex: 1, backgroundColor: colors.background }, padded && { padding: spacing.lg }, style]}
+      style={[{ flex: 1, backgroundColor: colors.background, overflow: 'hidden' }, padded && { padding: spacing.lg }, style]}
       edges={['top', 'left', 'right']}
     >
+      {decorated ? <Backdrop /> : null}
       {children}
     </SafeAreaView>
+  );
+}
+
+/** Product mark: rounded icon tile plus the wordmark. `stacked` centres the wordmark under a larger tile. */
+export function BrandMark({ size = 44, stacked }: { size?: number; stacked?: boolean }) {
+  const { colors } = useTheme();
+  return (
+    <View
+      accessible
+      accessibilityRole="image"
+      accessibilityLabel="9Drive"
+      style={{ flexDirection: stacked ? 'column' : 'row', alignItems: 'center', gap: stacked ? spacing.md : spacing.sm }}
+    >
+      <View
+        style={[
+          {
+            width: size,
+            height: size,
+            borderRadius: size * 0.32,
+            backgroundColor: colors.primary,
+            alignItems: 'center',
+            justifyContent: 'center',
+          },
+          elevation(2),
+        ]}
+      >
+        <Icon name="cloud" size={size * 0.54} color={colors.onPrimary} strokeWidth={2.2} />
+      </View>
+      <Text maxFontSizeMultiplier={1.4} style={{ color: colors.text, fontSize: stacked ? 30 : 22, fontWeight: '800', letterSpacing: 0.4 }}>
+        9Drive
+      </Text>
+    </View>
   );
 }
 
@@ -61,9 +147,10 @@ export function Card({ children, style }: { children: ReactNode; style?: StylePr
           backgroundColor: colors.surface,
           borderColor: colors.border,
           borderWidth: StyleSheet.hairlineWidth,
-          borderRadius: radius.lg,
+          borderRadius: radius.xl,
           padding: spacing.lg,
         },
+        elevation(1),
         style,
       ]}
     >
@@ -79,10 +166,11 @@ export interface ButtonProps {
   busy?: boolean;
   disabled?: boolean;
   accessibilityHint?: string;
+  icon?: IconName;
   style?: StyleProp<ViewStyle>;
 }
 
-export function Button({ label, onPress, variant = 'primary', busy, disabled, accessibilityHint, style }: ButtonProps) {
+export function Button({ label, onPress, variant = 'primary', busy, disabled, accessibilityHint, icon, style }: ButtonProps) {
   const { colors } = useTheme();
   const inactive = disabled || busy;
   const background = variant === 'primary' ? colors.primary : variant === 'danger' ? colors.danger : colors.surfaceAlt;
@@ -97,21 +185,25 @@ export function Button({ label, onPress, variant = 'primary', busy, disabled, ac
       onPress={onPress}
       style={({ pressed }) => [
         {
-          minHeight: MIN_TARGET,
-          paddingHorizontal: spacing.lg,
-          borderRadius: radius.md,
+          minHeight: 52,
+          paddingHorizontal: spacing.xl,
+          borderRadius: radius.lg,
           alignItems: 'center',
           justifyContent: 'center',
           flexDirection: 'row',
           gap: spacing.sm,
           backgroundColor: background,
-          opacity: inactive ? 0.55 : pressed ? 0.85 : 1,
+          borderWidth: variant === 'secondary' ? 1 : 0,
+          borderColor: colors.border,
+          opacity: inactive ? 0.55 : 1,
+          transform: [{ scale: pressed && !inactive ? 0.98 : 1 }],
         },
+        variant === 'primary' && !inactive ? elevation(2) : null,
         style,
       ]}
     >
-      {busy ? <ActivityIndicator color={foreground} /> : null}
-      <Text maxFontSizeMultiplier={1.6} style={{ color: foreground, fontSize: 16, fontWeight: '700' }}>
+      {busy ? <ActivityIndicator color={foreground} /> : icon ? <Icon name={icon} size={18} color={foreground} /> : null}
+      <Text maxFontSizeMultiplier={1.6} style={{ color: foreground, fontSize: 16, fontWeight: '700', letterSpacing: 0.2 }}>
         {label}
       </Text>
     </Pressable>
@@ -122,13 +214,16 @@ export interface TextFieldProps extends Omit<ComponentProps<typeof TextInput>, '
   label: string;
   error?: string | null;
   secure?: boolean;
+  /** Optional leading icon (decorative). */
+  icon?: IconName;
   inputRef?: Ref<ComponentRef<typeof TextInput>>;
 }
 
-export function TextField({ label, error, secure, inputRef, ...props }: TextFieldProps) {
+export function TextField({ label, error, secure, icon, inputRef, onFocus, onBlur, ...props }: TextFieldProps) {
   const { colors } = useTheme();
   const { t } = useI18n();
   const [hidden, setHidden] = useState(!!secure);
+  const [focused, setFocused] = useState(false);
   return (
     <View style={{ gap: spacing.xs }}>
       <AppText variant="label">{label}</AppText>
@@ -136,18 +231,28 @@ export function TextField({ label, error, secure, inputRef, ...props }: TextFiel
         style={{
           flexDirection: 'row',
           alignItems: 'center',
-          borderWidth: 1,
-          borderColor: error ? colors.danger : colors.border,
-          borderRadius: radius.md,
-          backgroundColor: colors.surface,
+          borderWidth: focused || error ? 2 : 1,
+          borderColor: error ? colors.danger : focused ? colors.primary : colors.border,
+          borderRadius: radius.lg,
+          backgroundColor: colors.surfaceAlt,
+          paddingStart: icon ? spacing.md : 0,
         }}
       >
+        {icon ? <Icon name={icon} size={18} color={focused ? colors.primary : colors.textMuted} /> : null}
         <TextInput
           ref={inputRef}
           accessibilityLabel={label}
           placeholderTextColor={colors.textMuted}
           maxFontSizeMultiplier={1.6}
           {...props}
+          onFocus={(event) => {
+            setFocused(true);
+            onFocus?.(event);
+          }}
+          onBlur={(event) => {
+            setFocused(false);
+            onBlur?.(event);
+          }}
           secureTextEntry={secure ? hidden : props.secureTextEntry}
           style={{ flex: 1, minHeight: MIN_TARGET, paddingHorizontal: spacing.md, color: colors.text, fontSize: 16 }}
         />
@@ -158,9 +263,7 @@ export function TextField({ label, error, secure, inputRef, ...props }: TextFiel
             onPress={() => setHidden((v) => !v)}
             style={{ minHeight: MIN_TARGET, minWidth: MIN_TARGET, alignItems: 'center', justifyContent: 'center' }}
           >
-            <Text style={{ color: colors.textMuted, fontSize: 13, fontWeight: '600' }}>
-              {hidden ? t('showPassword') : t('hidePassword')}
-            </Text>
+            <Icon name={hidden ? 'eye' : 'eyeOff'} size={20} color={colors.textMuted} />
           </Pressable>
         ) : null}
       </View>
@@ -192,7 +295,21 @@ export function StateView({
       style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.xl, gap: spacing.md }}
       accessibilityLiveRegion="polite"
     >
-      {kind === 'loading' ? <ActivityIndicator accessibilityLabel={t('loading')} color={colors.primary} /> : null}
+      {kind === 'loading' ? <ActivityIndicator accessibilityLabel={t('loading')} color={colors.primary} size="large" /> : null}
+      {kind !== 'loading' ? (
+        <View
+          style={{
+            width: 72,
+            height: 72,
+            borderRadius: 36,
+            alignItems: 'center',
+            justifyContent: 'center',
+            backgroundColor: kind === 'error' ? `${colors.danger}22` : `${colors.primary}22`,
+          }}
+        >
+          <Icon name={kind === 'error' ? 'alert' : 'folder'} size={32} color={kind === 'error' ? colors.danger : colors.primary} />
+        </View>
+      ) : null}
       {title ? (
         <AppText variant="heading" style={{ textAlign: 'center' }} accessibilityRole={kind === 'error' ? 'alert' : undefined}>
           {title}

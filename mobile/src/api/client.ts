@@ -213,6 +213,12 @@ export class ApiClient {
     } catch {
       throw new ApiError('offline', response.status, null, 'The connection was interrupted.');
     }
+    // A web page (for example the site's front end or a proxy error page) instead of the API: the configured address
+    // is wrong. Say so plainly instead of the generic "something went wrong".
+    // Gateway errors (502/503/504) keep their own, retryable classification.
+    if (response.status < 500 && /^\s*<(!doctype html|html)/i.test(text)) {
+      throw new ApiError('not_api', response.status, null, 'The server address does not point to the 9Drive API.');
+    }
     let json: unknown = undefined;
     if (text !== '') {
       try {

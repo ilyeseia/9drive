@@ -58,6 +58,9 @@ describe('design tokens', () => {
       expect(contrastRatio(p.onDanger, p.danger)).toBeGreaterThanOrEqual(4.5);
       expect(contrastRatio(p.danger, p.surface)).toBeGreaterThanOrEqual(4.5);
       expect(contrastRatio(p.warning, p.surface)).toBeGreaterThanOrEqual(4.5);
+      // The accent colour is used for text/icons on the dark surface and on the page background: keep it legible.
+      expect(contrastRatio(p.accent, p.surface)).toBeGreaterThanOrEqual(3);
+      expect(contrastRatio(p.primary, p.surface)).toBeGreaterThanOrEqual(3);
     }
   });
 
