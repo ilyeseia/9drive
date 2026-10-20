@@ -1,6 +1,8 @@
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { AddAccountScreen } from '../features/storage/AddAccountScreen';
 import { ConnectProviderScreen } from '../features/storage/ConnectProviderScreen';
+import { TeraBoxDeviceScreen } from '../features/storage/TeraBoxDeviceScreen';
+import { TeraBoxLoginScreen } from '../features/storage/TeraBoxLoginScreen';
 import { RoutingScreen } from '../features/storage/RoutingScreen';
 import { StorageScreen } from '../features/storage/StorageScreen';
 import { useI18n } from '../i18n/I18nProvider';
@@ -10,6 +12,8 @@ export type StorageStackParamList = {
   Routing: undefined;
   AddAccount: undefined;
   ConnectS3: undefined;
+  ConnectTeraBox: undefined;
+  ConnectTeraBoxLogin: undefined;
 };
 
 const Stack = createNativeStackNavigator<StorageStackParamList>();
@@ -22,6 +26,10 @@ export function StorageStack() {
       <Stack.Screen name="Routing" component={RoutingScreen} options={{ title: t('routing') }} />
       <Stack.Screen name="AddAccount" component={ConnectProviderScreen} options={{ title: t('addAccount') }} />
       <Stack.Screen name="ConnectS3" component={AddAccountScreen} options={{ title: t('connectS3') }} />
+      <Stack.Screen name="ConnectTeraBox" options={{ title: t('teraboxOfficialName') }}>
+        {() => <TeraBoxDeviceScreen />}
+      </Stack.Screen>
+      <Stack.Screen name="ConnectTeraBoxLogin" component={TeraBoxLoginScreen} options={{ title: t('teraboxExperimentalName') }} />
     </Stack.Navigator>
   );
 }

@@ -49,6 +49,7 @@ function server(opts: { accounts?: ReturnType<typeof account>[]; policy?: Return
         { id: 'google_drive', displayName: 'Google Drive', status: 'SUPPORTED', authMode: 'oauth2', connectMode: null, experimental: null },
         { id: 'dropbox', displayName: 'Dropbox', status: 'SUPPORTED', authMode: 'oauth2', connectMode: null },
         { id: 'terabox_open', displayName: 'TeraBox', status: 'SUPPORTED', authMode: 'oauth2', connectMode: 'device_code' },
+        { id: 'terabox', displayName: 'TeraBox (cookie)', status: 'SUPPORTED', authMode: 'api_key', experimental: true },
         { id: 'box', displayName: 'Box', status: 'PLANNED', authMode: 'oauth2' },
         { id: 's3', displayName: 'S3-compatible', status: 'SUPPORTED', authMode: 'access_key' },
       ]);
@@ -209,14 +210,16 @@ describe('RoutingScreen', () => {
 describe('ConnectProviderScreen', () => {
   afterEach(() => jest.restoreAllMocks());
 
-  it('offers sign-in providers the app can complete and S3, but not device-code or planned ones', async () => {
+  it('offers browser sign-in providers, S3 and both TeraBox flows, but not planned providers', async () => {
     await open(server(), 'AddAccount');
     expect(await screen.findByRole('button', { name: 'Connect Google Drive' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Connect Dropbox' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Connect S3-compatible storage' })).toBeTruthy();
-    expect(screen.queryByRole('button', { name: 'Connect TeraBox' })).toBeNull();
+    // TeraBox has its own flows (official device-code approval and the experimental sign-in).
+    expect(screen.getByRole('button', { name: 'Connect TeraBox' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Connect TeraBox (experimental)' })).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Connect Box' })).toBeNull();
-    expect(screen.getByText(/TeraBox and other providers are connected from the web app/)).toBeTruthy();
+    expect(screen.getByText(/Other providers are connected from the web app/)).toBeTruthy();
   });
 
   it('asks the server for the sign-in URL and opens it in the browser', async () => {

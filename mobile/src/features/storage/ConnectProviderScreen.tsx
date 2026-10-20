@@ -10,20 +10,31 @@ import { useI18n } from '../../i18n/I18nProvider';
 import type { StorageStackParamList } from '../../navigation/StorageStack';
 import { radius, spacing, useTheme } from '../../theme/theme';
 import { AppText, Button, Card, Screen, StateView } from '../../ui/components';
-import { IconTile } from '../../ui/extra';
-import { Icon } from '../../ui/Icon';
+import { IconTile, type Tone } from '../../ui/extra';
+import { Icon, type IconName } from '../../ui/Icon';
 import { providerLabel } from './model';
 import { useAccounts, useCatalog, useStorageActions } from './queries';
 
 type Nav = NativeStackNavigationProp<StorageStackParamList, 'AddAccount'>;
 
 /** Providers the app can connect itself: a browser sign-in (OAuth2 redirect) or S3-compatible access keys. */
-export function connectableProviders(catalog: CatalogEntry[]): { oauth: CatalogEntry[]; s3: boolean } {
+export function connectableProviders(catalog: CatalogEntry[]): {
+  oauth: CatalogEntry[];
+  s3: boolean;
+  teraboxOfficial: boolean;
+  teraboxExperimental: boolean;
+} {
   const oauth = catalog.filter(
     (entry) => entry.status === 'SUPPORTED' && entry.authMode === 'oauth2' && entry.connectMode !== 'device_code' && !entry.experimental,
   );
   const s3 = catalog.some((entry) => entry.id === 's3' && entry.status === 'SUPPORTED');
-  return { oauth, s3 };
+  const teraboxOfficial = catalog.some(
+    (entry) => entry.id === 'terabox_open' && entry.status === 'SUPPORTED' && entry.connectMode === 'device_code',
+  );
+  const teraboxExperimental = catalog.some(
+    (entry) => entry.id === 'terabox' && entry.status === 'SUPPORTED' && entry.authMode === 'api_key',
+  );
+  return { oauth, s3, teraboxOfficial, teraboxExperimental };
 }
 
 /**
@@ -101,7 +112,7 @@ export function ConnectProviderScreen() {
     );
   }
 
-  const { oauth, s3 } = connectableProviders(catalog.data);
+  const { oauth, s3, teraboxOfficial, teraboxExperimental } = connectableProviders(catalog.data);
   const connectedIds = new Set((accounts.data ?? []).map((a) => a.provider));
 
   return (
@@ -175,6 +186,27 @@ export function ConnectProviderScreen() {
           </Card>
         ) : null}
 
+        {teraboxOfficial ? (
+          <ProviderCard
+            icon="cloud"
+            tone="primary"
+            title={t('teraboxOfficialName')}
+            subtitle={connectedIds.has('terabox_open') ? t('connectAnother') : t('teraboxOfficialHelp')}
+            label={t('connectWith', { provider: t('teraboxOfficialName') })}
+            onPress={() => navigation.navigate('ConnectTeraBox')}
+          />
+        ) : null}
+        {teraboxExperimental ? (
+          <ProviderCard
+            icon="alert"
+            tone="warning"
+            title={t('teraboxExperimentalName')}
+            subtitle={connectedIds.has('terabox') ? t('connectAnother') : t('teraboxExperimentalHelp')}
+            label={t('connectWith', { provider: t('teraboxExperimentalName') })}
+            onPress={() => navigation.navigate('ConnectTeraBoxLogin')}
+          />
+        ) : null}
+
         {s3 ? (
           <Pressable
             accessibilityRole="button"
@@ -211,5 +243,51 @@ export function ConnectProviderScreen() {
         </Card>
       </ScrollView>
     </Screen>
+  );
+}
+
+function ProviderCard({
+  icon,
+  tone,
+  title,
+  subtitle,
+  label,
+  onPress,
+}: {
+  icon: IconName;
+  tone: Tone;
+  title: string;
+  subtitle: string;
+  label: string;
+  onPress: () => void;
+}) {
+  const { colors } = useTheme();
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      onPress={onPress}
+      style={({ pressed }) => ({
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: spacing.md,
+        padding: spacing.md,
+        minHeight: 68,
+        borderRadius: radius.xl,
+        backgroundColor: colors.surface,
+        borderWidth: 1,
+        borderColor: colors.border,
+        opacity: pressed ? 0.9 : 1,
+      })}
+    >
+      <IconTile icon={icon} tone={tone} size={44} />
+      <View style={{ flex: 1 }}>
+        <AppText style={{ fontWeight: '800' }}>{title}</AppText>
+        <AppText variant="caption" muted>
+          {subtitle}
+        </AppText>
+      </View>
+      <Icon name="chevron" size={20} color={colors.textMuted} />
+    </Pressable>
   );
 }

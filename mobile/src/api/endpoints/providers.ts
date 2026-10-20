@@ -123,6 +123,45 @@ export const providersApi = {
       })
       .then((r) => r.url),
 
+  /** Official TeraBox (device-code mode): the server holds the device code and returns an opaque handle plus a QR. */
+  startTeraboxDevice: (client: ApiClient) =>
+    client.request({
+      method: 'POST',
+      path: '/providers/terabox_open/device/start',
+      body: {},
+      schema: z.object({
+        handle: z.string().min(1),
+        qrCodeDataUrl: z.string(),
+        expiresInSeconds: z.number().positive(),
+        intervalSeconds: z.number().positive(),
+      }),
+    }),
+
+  pollTeraboxDevice: (client: ApiClient, handle: string) =>
+    client.request({
+      method: 'POST',
+      path: '/providers/terabox_open/device/poll',
+      body: { handle },
+      schema: z.object({
+        status: z.enum(['pending', 'connected']),
+        retryAfterSeconds: z.number().optional(),
+        accountId: z.string().optional(),
+      }),
+      // The server paces polling itself; a repeated poll is harmless but must not be retried automatically.
+      retry: { maxRetries: 0 },
+    }),
+
+  /** Experimental, unofficial TeraBox sign-in. Credentials go to the server once over TLS and are not kept here. */
+  connectTerabox: (client: ApiClient, input: { name?: string; apiKey?: string; email?: string; password?: string }) =>
+    client
+      .request({
+        method: 'POST',
+        path: '/providers/terabox/accounts',
+        body: Object.fromEntries(Object.entries(input).filter(([, v]) => v !== undefined && v !== '')),
+        schema: z.object({ account: z.object({ status: z.string() }).passthrough() }),
+      })
+      .then((r) => ({ status: r.account.status })),
+
   checkHealth: (client: ApiClient, accountId: string) =>
     client.request({ method: 'POST', path: `/providers/accounts/${encodeURIComponent(accountId)}/health`, body: {}, schema: healthSchema }),
 
