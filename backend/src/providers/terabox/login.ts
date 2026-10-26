@@ -165,6 +165,7 @@ export async function teraboxPassportLogin(input: TeraboxLoginInput): Promise<Te
     options: { headers?: Record<string, string>; body?: string } = {},
   ): Promise<{ status: number; text: string }> => {
     const url = path.startsWith('http') ? path : `${base}${path.startsWith('/') ? '' : '/'}${path}`;
+    console.info(`[terabox.login] ${method} ${path}`);
     let response;
     try {
       response = await request(url, {
@@ -183,10 +184,14 @@ export async function teraboxPassportLogin(input: TeraboxLoginInput): Promise<Te
         bodyTimeout: LOGIN_TIMEOUT_MS,
       });
     } catch (cause) {
+      console.error(`[terabox.login] request failed: ${path}`, cause);
       throw new ProviderError('ERR_UPSTREAM_UNAVAILABLE', 'TeraBox login request failed', { cause });
     }
     absorbSetCookies(jar, response.headers as Record<string, string | string[] | undefined>);
     const text = await response.body.text().catch(() => '');
+    if (response.statusCode >= 400) {
+      console.warn(`[terabox.login] ${path} returned ${response.statusCode}`, text.slice(0, 200));
+    }
     return { status: response.statusCode, text };
   };
 
