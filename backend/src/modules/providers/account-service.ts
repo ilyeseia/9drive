@@ -9,6 +9,7 @@ import { prisma } from '../../config/prisma.js'
 import { catalog, ProviderError, registry } from '../../providers/index.js'
 import { describeAccountState, type AccountState } from '../../providers/lifecycle.js'
 import { teraboxPassportLogin } from '../../providers/terabox/login.js'
+import { isTeraBoxCookieOnlyAccount } from '../../providers/terabox/errors.js'
 import type { AuthMode, Capability } from '../../providers/types.js'
 import { encryptText, hashToken, randomToken } from '../../utils/crypto.js'
 import { assertFetchAllowed } from '../../utils/ssrf.js'
@@ -87,14 +88,20 @@ export interface ProviderAccountView {
   routingEnabled: boolean | null
   experimental: boolean
   quotaPolicy: 'required' | 'optional'
+  /** True for TeraBox accounts connected with cookie only (no email+password stored for auto-renewal). */
+  cookieOnly: boolean
 }
 
 export function toProviderAccountView(
-  account: { id: string; provider: string; displayName: string | null; email: string; status: string; lastError?: string | null; metadata?: unknown },
+  account: ConnectedAccount,
   storageAccount: StorageAccount | null | undefined,
   health: ProviderHealth | null | undefined,
 ): ProviderAccountView {
   const described = describeAccountState(account.status, account.lastError)
+  const cookieOnly = account.provider === 'terabox' ? isTeraBoxCookieOnlyAccount({
+    apiKey: account.accessTokenEncrypted ? 'cookie' : undefined,
+    apiSecret: account.refreshTokenEncrypted ?? undefined,
+  }) : false
   return {
     id: account.id,
     provider: account.provider,
@@ -122,6 +129,7 @@ export function toProviderAccountView(
     routingEnabled: routingFlagOf(account.metadata),
     experimental: catalog.get(account.provider)?.experimental === true,
     quotaPolicy: catalog.get(account.provider)?.quotaPolicy ?? 'optional',
+    cookieOnly,
   }
 }
 

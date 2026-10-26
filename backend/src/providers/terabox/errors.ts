@@ -104,6 +104,36 @@ export function isTeraBoxAuthError(error: unknown): boolean {
   return typeof errno === 'number' && AUTH_ERRNOS.has(errno);
 }
 
+/** True when the error is specifically TeraBox errno -6 (user not login). */
+export function isTeraBoxUserNotLogin(error: unknown): boolean {
+  if (!ProviderError.is(error)) return false;
+  const detail = error.detail;
+  const errno = detail && typeof detail === 'object' ? (detail as { errno?: unknown }).errno : undefined;
+  return typeof errno === 'number' && errno === -6;
+}
+
+/**
+ * Checks if a TeraBox account is in cookie-only mode (no email+password stored for auto-renewal).
+ * Accounts without apiSecret (email+password) cannot auto-renew on errno -6.
+ */
+export function isTeraBoxCookieOnlyAccount(credentials: { apiKey?: string; apiSecret?: string }): boolean {
+  if (!credentials.apiSecret) return true;
+  try {
+    const secret = JSON.parse(credentials.apiSecret) as { email?: unknown; password?: unknown };
+    return !(typeof secret.email === 'string' && typeof secret.password === 'string');
+  } catch {
+    return true;
+  }
+}
+
+/** Enhanced message for TeraBox errno -6 with guidance for cookie-only accounts. */
+export function getTeraBoxUserNotLoginMessage(cookieOnly: boolean): string {
+  if (cookieOnly) {
+    return 'TeraBox session expired (user not login). This account was connected with a session cookie only — it cannot auto-renew. Reconnect the account with Email + Password to enable automatic session renewal.';
+  }
+  return 'TeraBox session expired (user not login). Automatic renewal will be attempted on the next request.';
+}
+
 /**
  * Non-2xx HTTP answer. TeraBox normally answers 200 with a non-zero errno, so
  * this is the fallback for gateways, redirects and WAF challenges.
