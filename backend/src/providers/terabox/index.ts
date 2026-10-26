@@ -58,7 +58,7 @@ import {
   readBodyText,
   parseJson,
 } from './client.js';
-import { isTeraBoxConflict, mapTeraBoxErrno } from './errors.js';
+import { isTeraBoxConflict, mapTeraBoxErrno, isTeraBoxAuthError, isTeraBoxUserNotLogin, isTeraBoxCookieOnlyAccount, getTeraBoxUserNotLoginMessage } from './errors.js';
 import { teraboxPassportLogin } from './login.js';
 import { controlMd5, decodeMd5, signDownload } from './sign.js';
 import { teraboxTransport } from './transport.js';
